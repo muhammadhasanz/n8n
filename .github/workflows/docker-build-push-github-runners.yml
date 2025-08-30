@@ -32,6 +32,15 @@ on:
 
   workflow_dispatch:
     inputs:
+      n8n_version:
+        description: 'N8N version to build'
+        required: true
+        type: string
+      release_type:
+        description: 'Release type (stable, nightly, dev)'
+        required: false
+        type: string
+        default: 'stable'
       push_enabled:
         description: 'Push image to registry'
         required: false
