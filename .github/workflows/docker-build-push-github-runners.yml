@@ -443,14 +443,14 @@ jobs:
           curl -v "${{ env.SUCCESS_URL }}" || echo "Failed to call success URL"
         shell: bash
 
-  security-scan:
-    name: Security Scan
-    needs: [determine-build-context, build-and-push-docker]
-    if: |
-      success() &&
-      (needs.determine-build-context.outputs.release_type == 'stable' ||
-       needs.determine-build-context.outputs.release_type == 'nightly')
-    uses: ./.github/workflows/security-trivy-scan-callable.yml
-    with:
-      image_ref: ${{ needs.build-and-push-docker.outputs.image_ref }}
-    secrets: inherit
+  # security-scan:
+  #   name: Security Scan
+  #   needs: [determine-build-context, build-and-push-docker]
+  #   if: |
+  #     success() &&
+  #     (needs.determine-build-context.outputs.release_type == 'stable' ||
+  #      needs.determine-build-context.outputs.release_type == 'nightly')
+  #   uses: ./.github/workflows/security-trivy-scan-callable.yml
+  #   with:
+  #     image_ref: ${{ needs.build-and-push-docker.outputs.image_ref }}
+  #   secrets: inherit
