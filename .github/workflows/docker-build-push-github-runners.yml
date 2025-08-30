@@ -193,32 +193,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply n8n modifications
-        run: |
-          echo "🔧 Applying n8n license modifications..."
-          chmod +x apply-modifications.sh
-          ./apply-modifications.sh
-          echo "✅ Modifications applied successfully"
+      # - name: Apply n8n modifications
+      #   run: |
+      #     echo "🔧 Applying n8n license modifications..."
+      #     chmod +x apply-modifications.sh
+      #     ./apply-modifications.sh
+      #     echo "✅ Modifications applied successfully"
 
-      - name: 🔍 Verify modifications
-        run: |
-          echo "🔍 Verifying applied modifications..."
+      # - name: 🔍 Verify modifications
+        # run: |
+          # echo "🔍 Verifying applied modifications..."
           
-          # Check if license-state.ts has been modified
-          if [ -f "packages/@n8n/backend-common/src/license-state.ts.backup" ]; then
-            echo "✅ license-state.ts backup found - modifications applied"
-          else
-            echo "⚠️ license-state.ts backup not found"
-          fi
+          # # Check if license-state.ts has been modified
+          # if [ -f "packages/@n8n/backend-common/src/license-state.ts.backup" ]; then
+          #   echo "✅ license-state.ts backup found - modifications applied"
+          # else
+          #   echo "⚠️ license-state.ts backup not found"
+          # fi
           
-          # Check if license.ts has been modified  
-          if [ -f "packages/cli/src/license.ts.backup" ]; then
-            echo "✅ license.ts backup found - modifications applied"
-          else
-            echo "⚠️ license.ts backup not found"
-          fi
+          # # Check if license.ts has been modified  
+          # if [ -f "packages/cli/src/license.ts.backup" ]; then
+          #   echo "✅ license.ts backup found - modifications applied"
+          # else
+          #   echo "⚠️ license.ts backup not found"
+          # fi
           
-          echo "🎯 Verification completed"
+          # echo "🎯 Verification completed"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
