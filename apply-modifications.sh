@@ -71,16 +71,16 @@ if [ -f "$LICENSE_FILE" ]; then
     # Backup original file
     cp "$LICENSE_FILE" "$LICENSE_FILE.backup"
     
-    # Apply modifications
+    # Apply modifications - exclude getAiCredits
     sed -i 's/return this\.manager?.hasFeatureEnabled(feature) ?? false;/this.manager?.hasFeatureEnabled(feature) ?? false;\n\t\treturn true;/' "$LICENSE_FILE"
     
-    # Replace quota methods to return unlimited
-    sed -i 's/return this\.getValue(.*) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
-    sed -i 's/return this\.getValue(.*) ?? 0;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
+    # Replace quota methods to return unlimited (exclude getAiCredits)
+    sed -i '/getAiCredits/!s/return this\.getValue(.*) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
+    sed -i '/getAiCredits/!s/return this\.getValue(.*) ?? 0;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
     sed -i "s/return this\.getValue('planName') ?? 'Community';/return 'Enterprise';/" "$LICENSE_FILE"
     sed -i 's/return this\.getUsersLimit() === UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
     
-    print_success "Modified license.ts"
+    print_success "Modified license.ts (getAiCredits excluded)"
 else
     print_warning "license.ts not found, skipping..."
 fi
@@ -126,7 +126,7 @@ print_success "🎉 Modified files successfully processed!"
 echo ""
 print_success "📋 Summary of changes:"
 echo "   ✅ License bypass applied to license-state.ts (unlimited enterprise features)"
-echo "   ✅ License bypass applied to license.ts (unlimited enterprise features)"
+echo "   ✅ License bypass applied to license.ts (unlimited enterprise features, getAiCredits excluded)"
 echo "   ✅ Project navigation enhanced in ProjectNavigation.vue"
 echo "   ✅ Non-production banner disabled in init.ts"
 echo ""
