@@ -119,67 +119,67 @@ jobs:
           
           echo "✅ Build context determined"
 
-  #     - name: 🏷️ Generate tags and labels
-  #       id: tags
-  #       run: |
-  #         echo "🏷️ Generating tags and labels..."
+      - name: 🏷️ Generate tags and labels
+        id: tags
+        run: |
+          echo "🏷️ Generating tags and labels..."
           
-  #         VERSION="${{ steps.context.outputs.n8n_version }}"
-  #         RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
-  #         SHORT_SHA="${{ github.sha }}"
-  #         SHORT_SHA="${SHORT_SHA:0:8}"
+          VERSION="${{ steps.context.outputs.n8n_version }}"
+          RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:8}"
           
-  #         # Base image names
-  #         GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/n8n"
-  #         DOCKERHUB_IMAGE="${{ github.repository_owner }}/n8n"
+          # Base image names
+          GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/n8n"
+          DOCKERHUB_IMAGE="${{ github.repository_owner }}/n8n"
           
-  #         # Generate tags based on release type
-  #         case $RELEASE_TYPE in
-  #           "stable")
-  #             TAGS="$GHCR_IMAGE:$VERSION,$GHCR_IMAGE:latest"
-  #             if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
-  #               TAGS="$TAGS,$DOCKERHUB_IMAGE:$VERSION,$DOCKERHUB_IMAGE:latest"
-  #             fi
-  #             ;;
-  #           "nightly")
-  #             TAGS="$GHCR_IMAGE:nightly"
-  #             if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
-  #               TAGS="$TAGS,$DOCKERHUB_IMAGE:nightly"
-  #             fi
-  #             ;;
-  #           "pr")
-  #             TAGS="$GHCR_IMAGE:pr-${{ github.event.number }}"
-  #             ;;
-  #           "dev")
-  #             TAGS="$GHCR_IMAGE:dev-$SHORT_SHA"
-  #             ;;
-  #           *)
-  #             TAGS="$GHCR_IMAGE:edge"
-  #             ;;
-  #         esac
+          # Generate tags based on release type
+          case $RELEASE_TYPE in
+            "stable")
+              TAGS="$GHCR_IMAGE:$VERSION,$GHCR_IMAGE:latest"
+              if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
+                TAGS="$TAGS,$DOCKERHUB_IMAGE:$VERSION,$DOCKERHUB_IMAGE:latest"
+              fi
+              ;;
+            "nightly")
+              TAGS="$GHCR_IMAGE:nightly"
+              if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
+                TAGS="$TAGS,$DOCKERHUB_IMAGE:nightly"
+              fi
+              ;;
+            "pr")
+              TAGS="$GHCR_IMAGE:pr-${{ github.event.number }}"
+              ;;
+            "dev")
+              TAGS="$GHCR_IMAGE:dev-$SHORT_SHA"
+              ;;
+            *)
+              TAGS="$GHCR_IMAGE:edge"
+              ;;
+          esac
           
-  #         echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
           
-  #         # Generate labels
-  #         LABELS=$(cat << EOF
-  #         org.opencontainers.image.title=n8n
-  #         org.opencontainers.image.description=Workflow automation platform
-  #         org.opencontainers.image.version=$VERSION
-  #         org.opencontainers.image.revision=${{ github.sha }}
-  #         org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-  #         org.opencontainers.image.url=https://n8n.io
-  #         org.opencontainers.image.vendor=n8n
-  #         org.opencontainers.image.licenses=SEE LICENSE IN LICENSE.md
-  #         org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-  #         EOF
-  #         )
+          # Generate labels
+          LABELS=$(cat << EOF
+          org.opencontainers.image.title=n8n
+          org.opencontainers.image.description=Workflow automation platform
+          org.opencontainers.image.version=$VERSION
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.url=https://n8n.io
+          org.opencontainers.image.vendor=n8n
+          org.opencontainers.image.licenses=SEE LICENSE IN LICENSE.md
+          org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          EOF
+          )
           
-  #         # Convert to single line
-  #         LABELS=$(echo "$LABELS" | tr '\n' ',' | sed 's/,$//')
-  #         echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          # Convert to single line
+          LABELS=$(echo "$LABELS" | tr '\n' ',' | sed 's/,$//')
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
           
-  #         echo "✅ Tags and labels generated"
-  #         echo "📋 Tags: $TAGS"
+          echo "✅ Tags and labels generated"
+          echo "📋 Tags: $TAGS"
 
   # build-and-push:
   #   name: 🏗️ Build and Push Docker Image
