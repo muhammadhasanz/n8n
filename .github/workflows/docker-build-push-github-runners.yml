@@ -66,59 +66,58 @@ jobs:
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
-      - run: echo "Workflow working! ✅"
-        # with:
-        #   fetch-depth: 0
+        with:
+          fetch-depth: 0
 
-  #     - name: 📋 Determine build context
-  #       id: context
-  #       run: |
-  #         echo "🔍 Determining build context..."
+      - name: 📋 Determine build context
+        id: context
+        run: |
+          echo "🔍 Determining build context..."
           
-  #         # Determine release type
-  #         case "${{ github.event_name }}" in
-  #           "push")
-  #             echo "release_type=stable" >> $GITHUB_OUTPUT
-  #             echo "should_scan=true" >> $GITHUB_OUTPUT
-  #             ;;
-  #           "schedule")
-  #             echo "release_type=nightly" >> $GITHUB_OUTPUT
-  #             echo "should_scan=true" >> $GITHUB_OUTPUT
-  #             ;;
-  #           "workflow_call")
-  #             echo "release_type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
-  #             echo "should_scan=true" >> $GITHUB_OUTPUT
-  #             ;;
-  #           "pull_request")
-  #             echo "release_type=pr" >> $GITHUB_OUTPUT
-  #             echo "should_scan=false" >> $GITHUB_OUTPUT
-  #             ;;
-  #           "workflow_dispatch")
-  #             echo "release_type=dev" >> $GITHUB_OUTPUT
-  #             echo "should_scan=true" >> $GITHUB_OUTPUT
-  #             ;;
-  #           *)
-  #             echo "release_type=dev" >> $GITHUB_OUTPUT
-  #             echo "should_scan=false" >> $GITHUB_OUTPUT
-  #             ;;
-  #         esac
+          # Determine release type
+          case "${{ github.event_name }}" in
+            "push")
+              echo "release_type=stable" >> $GITHUB_OUTPUT
+              echo "should_scan=true" >> $GITHUB_OUTPUT
+              ;;
+            "schedule")
+              echo "release_type=nightly" >> $GITHUB_OUTPUT
+              echo "should_scan=true" >> $GITHUB_OUTPUT
+              ;;
+            "workflow_call")
+              echo "release_type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
+              echo "should_scan=true" >> $GITHUB_OUTPUT
+              ;;
+            "pull_request")
+              echo "release_type=pr" >> $GITHUB_OUTPUT
+              echo "should_scan=false" >> $GITHUB_OUTPUT
+              ;;
+            "workflow_dispatch")
+              echo "release_type=dev" >> $GITHUB_OUTPUT
+              echo "should_scan=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "release_type=dev" >> $GITHUB_OUTPUT
+              echo "should_scan=false" >> $GITHUB_OUTPUT
+              ;;
+          esac
           
-  #         # Determine version
-  #         if [[ -n "${{ inputs.n8n_version }}" ]]; then
-  #           VERSION="${{ inputs.n8n_version }}"
-  #         else
-  #           VERSION=$(npm pkg get version --workspaces=false | tr -d '"')
-  #         fi
-  #         echo "n8n_version=$VERSION" >> $GITHUB_OUTPUT
+          # Determine version
+          if [[ -n "${{ inputs.n8n_version }}" ]]; then
+            VERSION="${{ inputs.n8n_version }}"
+          else
+            VERSION=$(npm pkg get version --workspaces=false | tr -d '"')
+          fi
+          echo "n8n_version=$VERSION" >> $GITHUB_OUTPUT
           
-  #         # Determine push setting
-  #         PUSH_ENABLED="${{ inputs.push_enabled }}"
-  #         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-  #           PUSH_ENABLED="false"  # Never push on PRs
-  #         fi
-  #         echo "push_enabled=${PUSH_ENABLED:-true}" >> $GITHUB_OUTPUT
+          # Determine push setting
+          PUSH_ENABLED="${{ inputs.push_enabled }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PUSH_ENABLED="false"  # Never push on PRs
+          fi
+          echo "push_enabled=${PUSH_ENABLED:-true}" >> $GITHUB_OUTPUT
           
-  #         echo "✅ Build context determined"
+          echo "✅ Build context determined"
 
   #     - name: 🏷️ Generate tags and labels
   #       id: tags
