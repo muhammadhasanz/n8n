@@ -71,16 +71,19 @@ if [ -f "$LICENSE_FILE" ]; then
     # Backup original file
     cp "$LICENSE_FILE" "$LICENSE_FILE.backup"
     
-    # Apply modifications - exclude getAiCredits
+    # Apply modifications - exclude getAiCredits and isAiAssistantEnabled specifically
     sed -i 's/return this\.manager?.hasFeatureEnabled(feature) ?? false;/this.manager?.hasFeatureEnabled(feature) ?? false;\n\t\treturn true;/' "$LICENSE_FILE"
     
-    # Replace quota methods to return unlimited (exclude getAiCredits)
-    sed -i '/getAiCredits/!s/return this\.getValue(.*) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
-    sed -i '/getAiCredits/!s/return this\.getValue(.*) ?? 0;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
+    # Replace quota methods to return unlimited, but exclude getAiCredits method
+    sed -i '/getAiCredits()/,/^[[:space:]]*}/!s/return this\.getValue(.*) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
+    sed -i '/getAiCredits()/,/^[[:space:]]*}/!s/return this\.getValue(.*) ?? 0;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
     sed -i "s/return this\.getValue('planName') ?? 'Community';/return 'Enterprise';/" "$LICENSE_FILE"
     sed -i 's/return this\.getUsersLimit() === UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
     
-    print_success "Modified license.ts (getAiCredits excluded)"
+    # Specifically set isAiAssistantEnabled to return false
+    sed -i '/isAiAssistantEnabled()/,/^[[:space:]]*}/ s/return this\.isLicensed(LICENSE_FEATURES\.AI_ASSISTANT);/return false;/' "$LICENSE_FILE"
+    
+    print_success "Modified license.ts (getAiCredits and isAiAssistantEnabled excluded)"
 else
     print_warning "license.ts not found, skipping..."
 fi
@@ -126,7 +129,9 @@ print_success "🎉 Modified files successfully processed!"
 echo ""
 print_success "📋 Summary of changes:"
 echo "   ✅ License bypass applied to license-state.ts (unlimited enterprise features)"
-echo "   ✅ License bypass applied to license.ts (unlimited enterprise features, getAiCredits excluded)"
+echo "   ✅ License bypass applied to license.ts (unlimited enterprise features)"
+echo "   ❌ getAiCredits() preserved - returns original license-based value"
+echo "   ❌ isAiAssistantEnabled() disabled - returns false"
 echo "   ✅ Project navigation enhanced in ProjectNavigation.vue"
 echo "   ✅ Non-production banner disabled in init.ts"
 echo ""
