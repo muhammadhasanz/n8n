@@ -9,6 +9,9 @@ env:
   REGISTRY_DOCKERHUB: docker.io
 
 on:
+  push:
+    branches: [ main, master ]
+  
   schedule:
     # Build nightly setiap hari jam 00:00 UTC
     - cron: '0 0 * * *'
@@ -27,10 +30,6 @@ on:
         description: 'Whether to push the built images'
         type: boolean
         default: true
-      platforms:
-        description: 'Platforms to build for'
-        type: string
-        default: 'linux/amd64,linux/arm64'
   
   workflow_dispatch:
     inputs:
@@ -38,13 +37,6 @@ on:
         description: 'Push image to registry'
         type: boolean
         default: true
-      platforms:
-        description: 'Platforms to build'
-        type: choice
-        options:
-          - 'linux/amd64'
-          - 'linux/amd64,linux/arm64'
-        default: 'linux/amd64'
       success_url:
         description: 'URL to call after successful build'
         type: string
@@ -68,7 +60,6 @@ jobs:
       release_type: ${{ steps.context.outputs.release_type }}
       n8n_version: ${{ steps.context.outputs.n8n_version }}
       push_enabled: ${{ steps.context.outputs.push_enabled }}
-      platforms: ${{ steps.context.outputs.platforms }}
       tags: ${{ steps.tags.outputs.tags }}
       labels: ${{ steps.tags.outputs.labels }}
       should_scan: ${{ steps.context.outputs.should_scan }}
@@ -83,31 +74,30 @@ jobs:
         run: |
           echo "🔍 Determining build context..."
           
-          # Determine release type and platforms
+          # Determine release type
           case "${{ github.event_name }}" in
+            "push")
+              echo "release_type=stable" >> $GITHUB_OUTPUT
+              echo "should_scan=true" >> $GITHUB_OUTPUT
+              ;;
             "schedule")
               echo "release_type=nightly" >> $GITHUB_OUTPUT
-              echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
               echo "should_scan=true" >> $GITHUB_OUTPUT
               ;;
             "workflow_call")
               echo "release_type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
-              echo "platforms=${{ inputs.platforms }}" >> $GITHUB_OUTPUT
               echo "should_scan=true" >> $GITHUB_OUTPUT
               ;;
             "pull_request")
               echo "release_type=pr" >> $GITHUB_OUTPUT
-              echo "platforms=linux/amd64" >> $GITHUB_OUTPUT  # PR builds only AMD64 for speed
               echo "should_scan=false" >> $GITHUB_OUTPUT
               ;;
             "workflow_dispatch")
               echo "release_type=dev" >> $GITHUB_OUTPUT
-              echo "platforms=${{ inputs.platforms }}" >> $GITHUB_OUTPUT
               echo "should_scan=true" >> $GITHUB_OUTPUT
               ;;
             *)
               echo "release_type=dev" >> $GITHUB_OUTPUT
-              echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
               echo "should_scan=false" >> $GITHUB_OUTPUT
               ;;
           esac
@@ -232,11 +222,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-            network=host
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
 
       - name: 🔐 Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -257,7 +242,6 @@ jobs:
         with:
           context: .
           file: docker/images/n8n/Dockerfile
-          platforms: ${{ needs.determine-build-context.outputs.platforms }}
           push: true
           tags: ${{ needs.determine-build-context.outputs.tags }}
           labels: ${{ needs.determine-build-context.outputs.labels }}
@@ -266,15 +250,12 @@ jobs:
           build-args: |
             N8N_VERSION=${{ needs.determine-build-context.outputs.n8n_version }}
             NODE_VERSION=22
-          provenance: false
-          sbom: false
 
       - name: 📋 Image digest
         run: |
           echo "🐳 Image built and pushed successfully!"
           echo "📋 Tags: ${{ needs.determine-build-context.outputs.tags }}"
           echo "🏷️ Version: ${{ needs.determine-build-context.outputs.n8n_version }}"
-          echo "🏗️ Platforms: ${{ needs.determine-build-context.outputs.platforms }}"
 
   security-scan:
     name: 🔒 Security Scan
@@ -348,7 +329,6 @@ jobs:
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "image_tags": "${{ needs.determine-build-context.outputs.tags }}",
               "n8n_version": "${{ needs.determine-build-context.outputs.n8n_version }}",
-              "platforms": "${{ needs.determine-build-context.outputs.platforms }}",
               "repository": "${{ github.repository }}",
               "ref": "${{ github.ref }}",
               "sha": "${{ github.sha }}"
@@ -374,17 +354,19 @@ jobs:
 
 # Summary comment for the workflow
 # 
-# This workflow uses GitHub-hosted runners instead of external runners like Blacksmith.
+# This workflow uses GitHub-hosted runners with default configuration.
 # 
 # Key benefits:
 # - ✅ Free for public repositories
 # - ✅ No external dependencies
 # - ✅ Built-in caching with GitHub Actions Cache
-# - ✅ Multi-platform builds with Docker Buildx
+# - ✅ Single platform builds (linux/amd64) for speed
 # - ✅ Integrated security scanning
 # - ✅ Automatic scaling
+# - ✅ Enterprise n8n features unlocked
 # 
 # Supported triggers:
+# - 🚀 Push to main/master branches
 # - 📅 Scheduled nightly builds
 # - 🔄 Workflow calls from other workflows  
 # - 🖱️ Manual dispatch
