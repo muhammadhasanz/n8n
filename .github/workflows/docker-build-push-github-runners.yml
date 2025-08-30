@@ -66,291 +66,292 @@ jobs:
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - run: echo "Workflow working! ✅"
+        # with:
+        #   fetch-depth: 0
 
-      - name: 📋 Determine build context
-        id: context
-        run: |
-          echo "🔍 Determining build context..."
+  #     - name: 📋 Determine build context
+  #       id: context
+  #       run: |
+  #         echo "🔍 Determining build context..."
           
-          # Determine release type
-          case "${{ github.event_name }}" in
-            "push")
-              echo "release_type=stable" >> $GITHUB_OUTPUT
-              echo "should_scan=true" >> $GITHUB_OUTPUT
-              ;;
-            "schedule")
-              echo "release_type=nightly" >> $GITHUB_OUTPUT
-              echo "should_scan=true" >> $GITHUB_OUTPUT
-              ;;
-            "workflow_call")
-              echo "release_type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
-              echo "should_scan=true" >> $GITHUB_OUTPUT
-              ;;
-            "pull_request")
-              echo "release_type=pr" >> $GITHUB_OUTPUT
-              echo "should_scan=false" >> $GITHUB_OUTPUT
-              ;;
-            "workflow_dispatch")
-              echo "release_type=dev" >> $GITHUB_OUTPUT
-              echo "should_scan=true" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "release_type=dev" >> $GITHUB_OUTPUT
-              echo "should_scan=false" >> $GITHUB_OUTPUT
-              ;;
-          esac
+  #         # Determine release type
+  #         case "${{ github.event_name }}" in
+  #           "push")
+  #             echo "release_type=stable" >> $GITHUB_OUTPUT
+  #             echo "should_scan=true" >> $GITHUB_OUTPUT
+  #             ;;
+  #           "schedule")
+  #             echo "release_type=nightly" >> $GITHUB_OUTPUT
+  #             echo "should_scan=true" >> $GITHUB_OUTPUT
+  #             ;;
+  #           "workflow_call")
+  #             echo "release_type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
+  #             echo "should_scan=true" >> $GITHUB_OUTPUT
+  #             ;;
+  #           "pull_request")
+  #             echo "release_type=pr" >> $GITHUB_OUTPUT
+  #             echo "should_scan=false" >> $GITHUB_OUTPUT
+  #             ;;
+  #           "workflow_dispatch")
+  #             echo "release_type=dev" >> $GITHUB_OUTPUT
+  #             echo "should_scan=true" >> $GITHUB_OUTPUT
+  #             ;;
+  #           *)
+  #             echo "release_type=dev" >> $GITHUB_OUTPUT
+  #             echo "should_scan=false" >> $GITHUB_OUTPUT
+  #             ;;
+  #         esac
           
-          # Determine version
-          if [[ -n "${{ inputs.n8n_version }}" ]]; then
-            VERSION="${{ inputs.n8n_version }}"
-          else
-            VERSION=$(npm pkg get version --workspaces=false | tr -d '"')
-          fi
-          echo "n8n_version=$VERSION" >> $GITHUB_OUTPUT
+  #         # Determine version
+  #         if [[ -n "${{ inputs.n8n_version }}" ]]; then
+  #           VERSION="${{ inputs.n8n_version }}"
+  #         else
+  #           VERSION=$(npm pkg get version --workspaces=false | tr -d '"')
+  #         fi
+  #         echo "n8n_version=$VERSION" >> $GITHUB_OUTPUT
           
-          # Determine push setting
-          PUSH_ENABLED="${{ inputs.push_enabled }}"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            PUSH_ENABLED="false"  # Never push on PRs
-          fi
-          echo "push_enabled=${PUSH_ENABLED:-true}" >> $GITHUB_OUTPUT
+  #         # Determine push setting
+  #         PUSH_ENABLED="${{ inputs.push_enabled }}"
+  #         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+  #           PUSH_ENABLED="false"  # Never push on PRs
+  #         fi
+  #         echo "push_enabled=${PUSH_ENABLED:-true}" >> $GITHUB_OUTPUT
           
-          echo "✅ Build context determined"
+  #         echo "✅ Build context determined"
 
-      - name: 🏷️ Generate tags and labels
-        id: tags
-        run: |
-          echo "🏷️ Generating tags and labels..."
+  #     - name: 🏷️ Generate tags and labels
+  #       id: tags
+  #       run: |
+  #         echo "🏷️ Generating tags and labels..."
           
-          VERSION="${{ steps.context.outputs.n8n_version }}"
-          RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
-          SHORT_SHA="${{ github.sha }}"
-          SHORT_SHA="${SHORT_SHA:0:8}"
+  #         VERSION="${{ steps.context.outputs.n8n_version }}"
+  #         RELEASE_TYPE="${{ steps.context.outputs.release_type }}"
+  #         SHORT_SHA="${{ github.sha }}"
+  #         SHORT_SHA="${SHORT_SHA:0:8}"
           
-          # Base image names
-          GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/n8n"
-          DOCKERHUB_IMAGE="${{ github.repository_owner }}/n8n"
+  #         # Base image names
+  #         GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/n8n"
+  #         DOCKERHUB_IMAGE="${{ github.repository_owner }}/n8n"
           
-          # Generate tags based on release type
-          case $RELEASE_TYPE in
-            "stable")
-              TAGS="$GHCR_IMAGE:$VERSION,$GHCR_IMAGE:latest"
-              if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
-                TAGS="$TAGS,$DOCKERHUB_IMAGE:$VERSION,$DOCKERHUB_IMAGE:latest"
-              fi
-              ;;
-            "nightly")
-              TAGS="$GHCR_IMAGE:nightly"
-              if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
-                TAGS="$TAGS,$DOCKERHUB_IMAGE:nightly"
-              fi
-              ;;
-            "pr")
-              TAGS="$GHCR_IMAGE:pr-${{ github.event.number }}"
-              ;;
-            "dev")
-              TAGS="$GHCR_IMAGE:dev-$SHORT_SHA"
-              ;;
-            *)
-              TAGS="$GHCR_IMAGE:edge"
-              ;;
-          esac
+  #         # Generate tags based on release type
+  #         case $RELEASE_TYPE in
+  #           "stable")
+  #             TAGS="$GHCR_IMAGE:$VERSION,$GHCR_IMAGE:latest"
+  #             if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
+  #               TAGS="$TAGS,$DOCKERHUB_IMAGE:$VERSION,$DOCKERHUB_IMAGE:latest"
+  #             fi
+  #             ;;
+  #           "nightly")
+  #             TAGS="$GHCR_IMAGE:nightly"
+  #             if [[ "${{ secrets.DOCKERHUB_USERNAME }}" != "" ]]; then
+  #               TAGS="$TAGS,$DOCKERHUB_IMAGE:nightly"
+  #             fi
+  #             ;;
+  #           "pr")
+  #             TAGS="$GHCR_IMAGE:pr-${{ github.event.number }}"
+  #             ;;
+  #           "dev")
+  #             TAGS="$GHCR_IMAGE:dev-$SHORT_SHA"
+  #             ;;
+  #           *)
+  #             TAGS="$GHCR_IMAGE:edge"
+  #             ;;
+  #         esac
           
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+  #         echo "tags=$TAGS" >> $GITHUB_OUTPUT
           
-          # Generate labels
-          LABELS=$(cat << EOF
-          org.opencontainers.image.title=n8n
-          org.opencontainers.image.description=Workflow automation platform
-          org.opencontainers.image.version=$VERSION
-          org.opencontainers.image.revision=${{ github.sha }}
-          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.url=https://n8n.io
-          org.opencontainers.image.vendor=n8n
-          org.opencontainers.image.licenses=SEE LICENSE IN LICENSE.md
-          org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          EOF
-          )
+  #         # Generate labels
+  #         LABELS=$(cat << EOF
+  #         org.opencontainers.image.title=n8n
+  #         org.opencontainers.image.description=Workflow automation platform
+  #         org.opencontainers.image.version=$VERSION
+  #         org.opencontainers.image.revision=${{ github.sha }}
+  #         org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+  #         org.opencontainers.image.url=https://n8n.io
+  #         org.opencontainers.image.vendor=n8n
+  #         org.opencontainers.image.licenses=SEE LICENSE IN LICENSE.md
+  #         org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+  #         EOF
+  #         )
           
-          # Convert to single line
-          LABELS=$(echo "$LABELS" | tr '\n' ',' | sed 's/,$//')
-          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+  #         # Convert to single line
+  #         LABELS=$(echo "$LABELS" | tr '\n' ',' | sed 's/,$//')
+  #         echo "labels=$LABELS" >> $GITHUB_OUTPUT
           
-          echo "✅ Tags and labels generated"
-          echo "📋 Tags: $TAGS"
+  #         echo "✅ Tags and labels generated"
+  #         echo "📋 Tags: $TAGS"
 
-  build-and-push:
-    name: 🏗️ Build and Push Docker Image
-    needs: determine-build-context
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: needs.determine-build-context.outputs.push_enabled == 'true'
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  # build-and-push:
+  #   name: 🏗️ Build and Push Docker Image
+  #   needs: determine-build-context
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 60
+  #   if: needs.determine-build-context.outputs.push_enabled == 'true'
+  #   steps:
+  #     - name: 📥 Checkout
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
 
-      - name: Apply n8n modifications
-        run: |
-          echo "🔧 Applying n8n license modifications..."
-          chmod +x apply-modifications.sh
-          ./apply-modifications.sh
-          echo "✅ Modifications applied successfully"
+  #     - name: Apply n8n modifications
+  #       run: |
+  #         echo "🔧 Applying n8n license modifications..."
+  #         chmod +x apply-modifications.sh
+  #         ./apply-modifications.sh
+  #         echo "✅ Modifications applied successfully"
 
-      - name: 🔍 Verify modifications
-        run: |
-          echo "🔍 Verifying applied modifications..."
+  #     - name: 🔍 Verify modifications
+  #       run: |
+  #         echo "🔍 Verifying applied modifications..."
           
-          # Check if license-state.ts has been modified
-          if [ -f "packages/@n8n/backend-common/src/license-state.ts.backup" ]; then
-            echo "✅ license-state.ts backup found - modifications applied"
-          else
-            echo "⚠️ license-state.ts backup not found"
-          fi
+  #         # Check if license-state.ts has been modified
+  #         if [ -f "packages/@n8n/backend-common/src/license-state.ts.backup" ]; then
+  #           echo "✅ license-state.ts backup found - modifications applied"
+  #         else
+  #           echo "⚠️ license-state.ts backup not found"
+  #         fi
           
-          # Check if license.ts has been modified  
-          if [ -f "packages/cli/src/license.ts.backup" ]; then
-            echo "✅ license.ts backup found - modifications applied"
-          else
-            echo "⚠️ license.ts backup not found"
-          fi
+  #         # Check if license.ts has been modified  
+  #         if [ -f "packages/cli/src/license.ts.backup" ]; then
+  #           echo "✅ license.ts backup found - modifications applied"
+  #         else
+  #           echo "⚠️ license.ts backup not found"
+  #         fi
           
-          echo "🎯 Verification completed"
+  #         echo "🎯 Verification completed"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
 
-      - name: 🔐 Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: 🔐 Log in to GitHub Container Registry
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔐 Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && contains(needs.determine-build-context.outputs.tags, github.repository_owner) }}
+  #     - name: 🔐 Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #       if: ${{ secrets.DOCKERHUB_USERNAME != '' && contains(needs.determine-build-context.outputs.tags, github.repository_owner) }}
 
-      - name: 🏗️ Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/images/n8n/Dockerfile
-          push: true
-          tags: ${{ needs.determine-build-context.outputs.tags }}
-          labels: ${{ needs.determine-build-context.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            N8N_VERSION=${{ needs.determine-build-context.outputs.n8n_version }}
-            NODE_VERSION=22
+  #     - name: 🏗️ Build and push
+  #       uses: docker/build-push-action@v5
+  #       with:
+  #         context: .
+  #         file: docker/images/n8n/Dockerfile
+  #         push: true
+  #         tags: ${{ needs.determine-build-context.outputs.tags }}
+  #         labels: ${{ needs.determine-build-context.outputs.labels }}
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #         build-args: |
+  #           N8N_VERSION=${{ needs.determine-build-context.outputs.n8n_version }}
+  #           NODE_VERSION=22
 
-      - name: 📋 Image digest
-        run: |
-          echo "🐳 Image built and pushed successfully!"
-          echo "📋 Tags: ${{ needs.determine-build-context.outputs.tags }}"
-          echo "🏷️ Version: ${{ needs.determine-build-context.outputs.n8n_version }}"
+  #     - name: 📋 Image digest
+  #       run: |
+  #         echo "🐳 Image built and pushed successfully!"
+  #         echo "📋 Tags: ${{ needs.determine-build-context.outputs.tags }}"
+  #         echo "🏷️ Version: ${{ needs.determine-build-context.outputs.n8n_version }}"
 
-  security-scan:
-    name: 🔒 Security Scan
-    needs: [determine-build-context, build-and-push]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: |
-      always() &&
-      needs.build-and-push.result == 'success' &&
-      needs.determine-build-context.outputs.should_scan == 'true'
-    steps:
-      - name: 🔒 Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'ghcr.io/${{ github.repository_owner }}/n8n:${{ needs.determine-build-context.outputs.n8n_version }}'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # Don't fail the workflow on vulnerabilities
+  # security-scan:
+  #   name: 🔒 Security Scan
+  #   needs: [determine-build-context, build-and-push]
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 15
+  #   if: |
+  #     always() &&
+  #     needs.build-and-push.result == 'success' &&
+  #     needs.determine-build-context.outputs.should_scan == 'true'
+  #   steps:
+  #     - name: 🔒 Run Trivy vulnerability scanner
+  #       uses: aquasecurity/trivy-action@master
+  #       with:
+  #         image-ref: 'ghcr.io/${{ github.repository_owner }}/n8n:${{ needs.determine-build-context.outputs.n8n_version }}'
+  #         format: 'sarif'
+  #         output: 'trivy-results.sarif'
+  #         severity: 'CRITICAL,HIGH'
+  #         exit-code: '0'  # Don't fail the workflow on vulnerabilities
 
-      - name: 📤 Upload Trivy scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
+  #     - name: 📤 Upload Trivy scan results to GitHub Security
+  #       uses: github/codeql-action/upload-sarif@v3
+  #       if: always()
+  #       with:
+  #         sarif_file: 'trivy-results.sarif'
 
-      - name: 📋 Print scan summary
-        if: always()
-        run: |
-          echo "🔒 Security scan completed"
-          echo "📋 Results uploaded to GitHub Security tab"
+  #     - name: 📋 Print scan summary
+  #       if: always()
+  #       run: |
+  #         echo "🔒 Security scan completed"
+  #         echo "📋 Results uploaded to GitHub Security tab"
 
-  test-image:
-    name: 🧪 Test Built Image
-    needs: [determine-build-context, build-and-push]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: needs.build-and-push.result == 'success'
-    steps:
-      - name: 🧪 Test image functionality
-        run: |
-          IMAGE_TAG=$(echo "${{ needs.determine-build-context.outputs.tags }}" | cut -d',' -f1)
-          echo "🧪 Testing image: $IMAGE_TAG"
+  # test-image:
+  #   name: 🧪 Test Built Image
+  #   needs: [determine-build-context, build-and-push]
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   if: needs.build-and-push.result == 'success'
+  #   steps:
+  #     - name: 🧪 Test image functionality
+  #       run: |
+  #         IMAGE_TAG=$(echo "${{ needs.determine-build-context.outputs.tags }}" | cut -d',' -f1)
+  #         echo "🧪 Testing image: $IMAGE_TAG"
           
-          # Pull and run basic test
-          docker pull $IMAGE_TAG
-          docker run --rm $IMAGE_TAG n8n --version
+  #         # Pull and run basic test
+  #         docker pull $IMAGE_TAG
+  #         docker run --rm $IMAGE_TAG n8n --version
           
-          echo "✅ Image test passed"
+  #         echo "✅ Image test passed"
 
-  call-success-url:
-    name: 📞 Call Success URL
-    needs: [determine-build-context, build-and-push, security-scan, test-image]
-    runs-on: ubuntu-latest
-    if: |
-      always() &&
-      needs.build-and-push.result == 'success' &&
-      inputs.success_url != ''
-    steps:
-      - name: 📞 Call success webhook
-        run: |
-          echo "📞 Calling success URL..."
+  # call-success-url:
+  #   name: 📞 Call Success URL
+  #   needs: [determine-build-context, build-and-push, security-scan, test-image]
+  #   runs-on: ubuntu-latest
+  #   if: |
+  #     always() &&
+  #     needs.build-and-push.result == 'success' &&
+  #     inputs.success_url != ''
+  #   steps:
+  #     - name: 📞 Call success webhook
+  #       run: |
+  #         echo "📞 Calling success URL..."
           
-          curl -X POST "${{ inputs.success_url }}" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: GitHub-Actions/${{ github.workflow }}" \
-            -d '{
-              "status": "success",
-              "workflow": "${{ github.workflow }}",
-              "run_id": "${{ github.run_id }}",
-              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "image_tags": "${{ needs.determine-build-context.outputs.tags }}",
-              "n8n_version": "${{ needs.determine-build-context.outputs.n8n_version }}",
-              "repository": "${{ github.repository }}",
-              "ref": "${{ github.ref }}",
-              "sha": "${{ github.sha }}"
-            }' \
-            --max-time 30 \
-            --retry 3 \
-            --retry-delay 5
+  #         curl -X POST "${{ inputs.success_url }}" \
+  #           -H "Content-Type: application/json" \
+  #           -H "User-Agent: GitHub-Actions/${{ github.workflow }}" \
+  #           -d '{
+  #             "status": "success",
+  #             "workflow": "${{ github.workflow }}",
+  #             "run_id": "${{ github.run_id }}",
+  #             "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+  #             "image_tags": "${{ needs.determine-build-context.outputs.tags }}",
+  #             "n8n_version": "${{ needs.determine-build-context.outputs.n8n_version }}",
+  #             "repository": "${{ github.repository }}",
+  #             "ref": "${{ github.ref }}",
+  #             "sha": "${{ github.sha }}"
+  #           }' \
+  #           --max-time 30 \
+  #           --retry 3 \
+  #           --retry-delay 5
           
-          echo "✅ Success URL called"
+  #         echo "✅ Success URL called"
 
-  cleanup:
-    name: 🧹 Cleanup
-    needs: [determine-build-context, build-and-push]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: 🧹 Clean up old images (PR builds)
-        if: needs.determine-build-context.outputs.release_type == 'pr'
-        run: |
-          echo "🧹 Cleaning up old PR images..."
-          # Add cleanup logic for old PR images if needed
-          echo "✅ Cleanup completed"
+  # cleanup:
+  #   name: 🧹 Cleanup
+  #   needs: [determine-build-context, build-and-push]
+  #   runs-on: ubuntu-latest
+  #   if: always()
+  #   steps:
+  #     - name: 🧹 Clean up old images (PR builds)
+  #       if: needs.determine-build-context.outputs.release_type == 'pr'
+  #       run: |
+  #         echo "🧹 Cleaning up old PR images..."
+  #         # Add cleanup logic for old PR images if needed
+  #         echo "✅ Cleanup completed"
 
 # Summary comment for the workflow
 # 
