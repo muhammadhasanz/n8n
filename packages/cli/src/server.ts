@@ -66,6 +66,7 @@ import '@/webhooks/webhooks.controller';
 
 import { ChatServer } from './chat/chat-server';
 import { MfaService } from './mfa/mfa.service';
+import { PubSubRegistry } from './scaling/pubsub/pubsub.registry';
 
 @Service()
 export class Server extends AbstractServer {
@@ -252,6 +253,9 @@ export class Server extends AbstractServer {
 
 		await this.registerAdditionalControllers();
 
+		// Reinitialize the PubSubRegistry
+		Container.get(PubSubRegistry).init();
+
 		// register all known controllers
 		Container.get(ControllerRegistry).activate(app);
 
@@ -286,6 +290,13 @@ export class Server extends AbstractServer {
 
 		if (this.endpointPresetCredentials !== '') {
 			// POST endpoint to set preset credentials
+			const overwriteEndpointMiddleware =
+				Container.get(CredentialsOverwrites).getOverwriteEndpointMiddleware();
+
+			if (overwriteEndpointMiddleware) {
+				this.app.use(`/${this.endpointPresetCredentials}`, overwriteEndpointMiddleware);
+			}
+
 			this.app.post(
 				`/${this.endpointPresetCredentials}`,
 				async (req: express.Request, res: express.Response) => {

@@ -5,6 +5,7 @@ from typing import Dict, Optional, Any, Callable, Awaitable
 from urllib.parse import urlparse
 import websockets
 import random
+from src.errors import TaskCancelledError
 
 
 from src.config.task_runner_config import TaskRunnerConfig
@@ -302,7 +303,8 @@ class TaskRunner:
 
             task_state.process = process
 
-            result, print_args = self.executor.execute_process(
+            result, print_args = await asyncio.to_thread(
+                self.executor.execute_process,
                 process=process,
                 queue=queue,
                 task_timeout=self.config.task_timeout,
@@ -325,9 +327,17 @@ class TaskRunner:
                 )
             )
 
+        except TaskCancelledError as e:
+            response = RunnerTaskError(task_id=task_id, error={"message": str(e)})
+            await self._send_message(response)
+
         except Exception as e:
             self.logger.error(f"Task {task_id} failed", exc_info=True)
-            response = RunnerTaskError(task_id=task_id, error={"message": str(e)})
+            error = {
+                "message": getattr(e, "message", str(e)),
+                "description": getattr(e, "description", ""),
+            }
+            response = RunnerTaskError(task_id=task_id, error=error)
             await self._send_message(response)
 
         finally:

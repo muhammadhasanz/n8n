@@ -8,7 +8,7 @@ import { usePostHog } from './posthog.store';
 import { useSettingsStore } from '@/stores/settings.store';
 import { defaultSettings } from '../__tests__/defaults';
 import merge from 'lodash/merge';
-import { DEFAULT_POSTHOG_SETTINGS } from './posthog.test';
+import { DEFAULT_POSTHOG_SETTINGS } from './posthog.store.test';
 import { WORKFLOW_BUILDER_EXPERIMENT, DEFAULT_NEW_WORKFLOW_NAME } from '@/constants';
 import { reactive } from 'vue';
 import * as chatAPI from '@/api/ai';
@@ -71,7 +71,7 @@ spy.mockImplementation(
 const setAssistantEnabled = (enabled: boolean) => {
 	settingsStore.setSettings(
 		merge({}, defaultSettings, {
-			aiAssistant: { enabled },
+			aiAssistant: { enabled, setup: true },
 		}),
 	);
 };

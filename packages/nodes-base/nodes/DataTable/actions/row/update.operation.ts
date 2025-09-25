@@ -31,13 +31,13 @@ export async function execute(
 	const dataStoreProxy = await getDataTableProxyExecute(this, index);
 
 	const row = getAddRow(this, index);
-	const filter = getSelectFilter(this, index);
+	const filter = await getSelectFilter(this, index);
 
 	if (filter.filters.length === 0) {
 		throw new NodeOperationError(this.getNode(), 'At least one condition is required');
 	}
 
-	const updatedRows = await dataStoreProxy.updateRows({
+	const updatedRows = await dataStoreProxy.updateRow({
 		data: row,
 		filter,
 	});

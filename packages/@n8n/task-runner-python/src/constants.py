@@ -19,7 +19,7 @@ RUNNER_NAME = "Python Task Runner"
 DEFAULT_MAX_CONCURRENCY = 5  # tasks
 DEFAULT_MAX_PAYLOAD_SIZE = 1024 * 1024 * 1024  # 1 GiB
 DEFAULT_TASK_TIMEOUT = 60  # seconds
-DEFAULT_AUTO_SHUTDOWN_TIMEOUT = 15  # seconds
+DEFAULT_AUTO_SHUTDOWN_TIMEOUT = 0  # seconds
 DEFAULT_SHUTDOWN_TIMEOUT = 10  # seconds
 OFFER_INTERVAL = 0.25  # 250ms
 OFFER_VALIDITY = 5000  # ms
@@ -33,6 +33,7 @@ EXECUTOR_CIRCULAR_REFERENCE_KEY = "__n8n_internal_circular_ref__"
 EXECUTOR_ALL_ITEMS_FILENAME = "<all_items_task_execution>"
 EXECUTOR_PER_ITEM_FILENAME = "<per_item_task_execution>"
 EXECUTOR_FILENAMES = {EXECUTOR_ALL_ITEMS_FILENAME, EXECUTOR_PER_ITEM_FILENAME}
+SIGTERM_EXIT_CODE = -15
 
 # Broker
 DEFAULT_TASK_BROKER_URI = "http://127.0.0.1:5679"
@@ -144,4 +145,7 @@ ERROR_DANGEROUS_ATTRIBUTE = "Access to attribute '{attr}' is disallowed, because
 ERROR_DYNAMIC_IMPORT = (
     "Dynamic __import__() calls are not allowed for security reasons."
 )
-ERROR_SECURITY_VIOLATIONS = "Security violations detected:\n{violations}"
+ERROR_WINDOWS_NOT_SUPPORTED = (
+    "Error: This task runner is not supported on Windows. "
+    "Please use a Unix-like system (Linux or macOS)."
+)

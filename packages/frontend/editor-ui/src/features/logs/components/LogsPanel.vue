@@ -104,6 +104,14 @@ const keyMap = computed<KeyMap>(() => ({
 	ArrowUp: selectPrev,
 	Space: () => selected.value && toggleExpanded(selected.value),
 	Enter: () => selected.value && handleOpenNdv(selected.value),
+	...(isPoppedOut.value
+		? {
+				// We need shortcuts for toggling input/output panel in the pop-out window only
+				// because these are also implemented in the canvas
+				i: () => logsStore.toggleInputOpen(),
+				o: () => logsStore.toggleOutputOpen(),
+			}
+		: {}),
 }));
 
 function handleResizeOverviewPanelEnd() {
@@ -139,7 +147,7 @@ function handleChangeOutputTableColumnCollapsing(columnName: string | null) {
 </script>
 
 <template>
-	<div ref="popOutContainer">
+	<div ref="popOutContainer" data-test-id="logs-panel">
 		<!-- force re-create with key for shortcuts to work in pop-out window -->
 		<LogsViewKeyboardEventListener
 			:key="String(!!popOutWindow)"
