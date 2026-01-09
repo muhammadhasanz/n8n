@@ -1,6 +1,7 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 
 import { instanceUrlPrompt } from './chains/parameter-updater/instance-url';
+import { structuredOutputParser } from './shared/node-guidance';
 
 /**
  * Phase configuration for the workflow creation sequence
@@ -437,15 +438,7 @@ update_node_parameters({{
 </configuration_requirements>
 
 <data_parsing_strategy>
-For AI-generated structured data, prefer Structured Output Parser nodes over Code nodes.
-Why: Purpose-built parsers are more reliable and handle edge cases better than custom code.
-
-For binary file data, use Extract From File node to extract content from files before processing.
-
-Use Code nodes only for:
-- Simple string manipulations
-- Already structured data (JSON, CSV)
-- Custom business logic beyond parsing
+${structuredOutputParser.recommendation}
 </data_parsing_strategy>
 
 <fromAI_expressions>
@@ -569,8 +562,7 @@ update_node_parameters({{
 `;
 }
 
-const responsePatterns = `
-<response_patterns>
+const RESPONSE_PATTERNS = `<response_patterns>
 IMPORTANT: Only provide ONE response AFTER all tool executions are complete.
 
 EXCEPTION - Error handling:
@@ -607,16 +599,17 @@ ABSOLUTELY FORBIDDEN IN BUILDING MODE:
 - Describing what was built or explaining functionality
 - Workflow narration or step-by-step commentary
 - Status updates while tools are running
-</response_patterns>
-`;
+</response_patterns>`;
 
-const previousConversationSummary = `
-<previous_summary>
+const PREVIOUS_SUMMARY = `<previous_summary>
 {previousSummary}
 </previous_summary>`;
 
 /**
  * Factory function to create the main agent prompt with configurable options
+ *
+ * Note: Uses direct message block construction for LangChain ChatPromptTemplate
+ * compatibility. The PromptBuilder pattern is used elsewhere for simpler prompts.
  */
 export function createMainAgentPrompt(options: MainAgentPromptOptions = {}) {
 	const systemPrompt = generateSystemPrompt(options);
@@ -625,23 +618,10 @@ export function createMainAgentPrompt(options: MainAgentPromptOptions = {}) {
 		[
 			'system',
 			[
-				{
-					type: 'text',
-					text: systemPrompt,
-				},
-				{
-					type: 'text',
-					text: instanceUrlPrompt,
-				},
-				{
-					type: 'text',
-					text: responsePatterns,
-				},
-				{
-					type: 'text',
-					text: previousConversationSummary,
-					cache_control: { type: 'ephemeral' },
-				},
+				{ type: 'text', text: systemPrompt },
+				{ type: 'text', text: instanceUrlPrompt },
+				{ type: 'text', text: RESPONSE_PATTERNS },
+				{ type: 'text', text: PREVIOUS_SUMMARY, cache_control: { type: 'ephemeral' } },
 			],
 		],
 		['placeholder', '{messages}'],

@@ -9,7 +9,11 @@ import type {
 } from 'n8n-workflow';
 import { jsonParse, toCredentialContext } from 'n8n-workflow';
 
+import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
+
 import { DynamicCredentialResolverRegistry } from './credential-resolver-registry.service';
+import { ResolverConfigExpressionService } from './resolver-config-expression.service';
+import { extractSharedFields } from './shared-fields';
 import type {
 	CredentialResolveMetadata,
 	ICredentialResolutionProvider,
@@ -26,8 +30,10 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 	constructor(
 		private readonly resolverRegistry: DynamicCredentialResolverRegistry,
 		private readonly resolverRepository: DynamicCredentialResolverRepository,
+		private readonly loadNodesAndCredentials: LoadNodesAndCredentials,
 		private readonly cipher: Cipher,
 		private readonly logger: Logger,
+		private readonly expressionService: ResolverConfigExpressionService,
 	) {}
 
 	/**
@@ -36,8 +42,8 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 	 *
 	 * @param credentialsResolveMetadata The credential resolve metadata
 	 * @param staticData The decrypted static credential data
-	 * @param executionContext Optional execution context containing credential context
-	 * @param workflowSettings Optional workflow settings containing resolver ID fallback
+	 * @param additionalData Additional workflow execution data for context and settings
+	 * @param canUseExternalSecrets Whether the credential can use external secrets for expression resolution
 	 * @returns Resolved credential data (either dynamic or static)
 	 * @throws {CredentialResolutionError} If resolution fails and fallback is not allowed
 	 */
@@ -46,6 +52,7 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 		staticData: ICredentialDataDecryptedObject,
 		executionContext?: IExecutionContext,
 		workflowSettings?: IWorkflowSettings,
+		canUseExternalSecrets?: boolean,
 	): Promise<ICredentialDataDecryptedObject> {
 		// Determine which resolver ID to use: credential's own resolver or workflow's fallback
 		const resolverId =
@@ -66,7 +73,7 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 		}
 
 		// Get resolver instance from registry
-		const resolver = this.resolverRegistry.getResolverByName(resolverEntity.type);
+		const resolver = this.resolverRegistry.getResolverByTypename(resolverEntity.type);
 
 		if (!resolver) {
 			return this.handleMissingResolver(credentialsResolveMetadata, staticData, resolverId);
@@ -80,9 +87,21 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 		}
 
 		try {
+			const credentialType = this.loadNodesAndCredentials.getCredential(
+				credentialsResolveMetadata.type,
+			);
+
+			const sharedFields = extractSharedFields(credentialType.type);
+
 			// Decrypt and parse resolver configuration
 			const decryptedConfig = this.cipher.decrypt(resolverEntity.config);
-			const resolverConfig = jsonParse<Record<string, unknown>>(decryptedConfig);
+			const parsedConfig = jsonParse<Record<string, unknown>>(decryptedConfig);
+
+			// Resolve expressions in resolver configuration using global data only
+			const resolverConfig = await this.expressionService.resolve(
+				parsedConfig,
+				canUseExternalSecrets ?? false,
+			);
 
 			// Attempt dynamic resolution
 			const dynamicData = await resolver.getSecret(
@@ -101,6 +120,13 @@ export class DynamicCredentialService implements ICredentialResolutionProvider {
 				resolverSource: credentialsResolveMetadata.resolverId ? 'credential' : 'workflow',
 				identity: credentialContext.identity,
 			});
+
+			// Remove shared fields from dynamic data to avoid conflicts
+			for (const field of sharedFields) {
+				if (field in dynamicData) {
+					delete dynamicData[field];
+				}
+			}
 
 			// Adds and override static data with dynamically resolved data
 			return { ...staticData, ...dynamicData };
