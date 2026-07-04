@@ -1,5 +1,6 @@
 import { createComponentRenderer, type RenderOptions } from '@/__tests__/render';
 import { useNDVStore } from '@/features/ndv/shared/ndv.store';
+import { createWorkflowDocumentId } from '@/app/stores/workflowDocument.store';
 import { createTestingPinia } from '@pinia/testing';
 import userEvent from '@testing-library/user-event';
 import { fireEvent, within } from '@testing-library/vue';
@@ -11,6 +12,16 @@ import { createTestNodeProperties } from '@/__tests__/mocks';
 import type { AssignmentCollectionValue, AssignmentValue } from 'n8n-workflow';
 
 vi.mock('vue-router');
+
+// Instantiates a store that derives the workflow id from the route. These tests run
+// without a router, so resolve the id directly.
+vi.mock('@/app/composables/useWorkflowId', async () => {
+	const { computed } = await import('vue');
+	return {
+		useWorkflowId: () => computed(() => ''),
+		useRouteWorkflowId: () => computed(() => ''),
+	};
+});
 
 const DEFAULT_SETUP: RenderOptions<typeof AssignmentCollection> = {
 	pinia: createTestingPinia({
@@ -43,7 +54,9 @@ const getInput = (e: HTMLElement): HTMLInputElement => {
 };
 
 const getAssignmentType = (assignment: HTMLElement): string => {
-	return getInput(within(assignment).getByTestId('assignment-type-select')).value;
+	const typeSelect = within(assignment).getByTestId('assignment-type-select');
+	const button = within(typeSelect).getByRole('button');
+	return button.textContent?.trim() ?? '';
 };
 
 async function dropAssignment({
@@ -55,7 +68,7 @@ async function dropAssignment({
 	value: unknown;
 	dropArea: HTMLElement;
 }): Promise<void> {
-	useNDVStore().draggableStartDragging({
+	useNDVStore(createWorkflowDocumentId('')).draggableStartDragging({
 		type: 'mapping',
 		data: `{{ $json.${key} }}`,
 		dimensions: null,
@@ -197,6 +210,23 @@ describe('AssignmentCollection.vue', () => {
 		expect(getAssignmentType(assignments[2])).toEqual('Number');
 		expect(getAssignmentType(assignments[3])).toEqual('Object');
 		expect(getAssignmentType(assignments[4])).toEqual('Array');
+	});
+
+	it('can infer binary type for binary-like objects', async () => {
+		const { getByTestId, findAllByTestId } = renderComponent();
+		const dropArea = getByTestId('drop-area');
+
+		const binaryValue = {
+			mimeType: 'image/png',
+			data: 'base64data',
+		};
+
+		await dropAssignment({ key: 'binaryKey', value: binaryValue, dropArea });
+
+		const assignments = await findAllByTestId('assignment');
+
+		expect(assignments.length).toBe(1);
+		expect(getAssignmentType(assignments[0])).toEqual('Binary Data');
 	});
 
 	describe('defaultType prop', () => {

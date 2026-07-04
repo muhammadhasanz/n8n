@@ -1,16 +1,24 @@
-import { defineConfig } from 'vitest/config';
+import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 import type { InlineConfig } from 'vitest/node';
+
+import { coverageExcludes } from './coverage-excludes.js';
 
 export const createVitestConfig = (options: InlineConfig = {}) => {
 	const vitestConfig = defineConfig({
 		test: {
 			silent: true,
 			globals: true,
+			// Restore `vi.spyOn` spies to their original implementation before each test, so
+			// spies set up once don't leak across tests. Packages may override via `options`.
+			restoreMocks: true,
 			environment: 'jsdom',
 			setupFiles: ['./src/__tests__/setup.ts'],
+			reporters: process.env.CI === 'true' ? ['default', 'junit'] : ['default'],
+			outputFile: { junit: './junit.xml' },
 			coverage: {
 				enabled: false,
-				all: false,
+				include: ['src/**/*.{ts,vue}'],
+				exclude: [...coverageConfigDefaults.exclude, ...coverageExcludes],
 				provider: 'v8',
 				reporter: ['text-summary', 'lcov', 'html-spa'],
 			},
@@ -27,8 +35,8 @@ export const createVitestConfig = (options: InlineConfig = {}) => {
 		const { coverage } = vitestConfig.test;
 		coverage.enabled = true;
 		if (process.env.CI === 'true' && coverage.provider === 'v8') {
-			coverage.all = true;
-			coverage.reporter = ['cobertura'];
+			coverage.include = ['src/**/*.{ts,vue}'];
+			coverage.reporter = ['lcov'];
 		}
 	}
 

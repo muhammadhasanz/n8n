@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useResolvedExpression } from '@/app/composables/useResolvedExpression';
-import { BINARY_DATA_ACCESS_TOOLTIP } from '@/app/constants';
-import { useNDVStore } from '@/features/ndv/shared/ndv.store';
+import { injectNDVStore } from '@/features/ndv/shared/ndv.store';
+import { useBinaryDataAccessTooltip } from '@/features/ndv/shared/composables/useBinaryDataAccessTooltip';
 import useEnvironmentsStore from '@/features/settings/environments.ee/environments.store';
 import type { IUpdateInformation } from '@/Interface';
 import { useI18n } from '@n8n/i18n';
@@ -17,6 +17,7 @@ import { removeExpressionPrefix } from '@/app/utils/expressions';
 import { propertyNameFromExpression } from '@/app/utils/mappingUtils';
 import { N8nIconButton, N8nTooltip } from '@n8n/design-system';
 import { typeFromExpression } from '../../utils/assignmentCollection.utils';
+import { injectWorkflowDocumentStore } from '@/app/stores/workflowDocument.store';
 
 interface Props {
 	path: string;
@@ -31,7 +32,6 @@ interface Props {
 const props = defineProps<Props>();
 
 const assignment = ref<AssignmentValue>(props.modelValue);
-const valueInputHovered = ref(false);
 
 watch(
 	() => props.modelValue,
@@ -46,8 +46,10 @@ const emit = defineEmits<{
 }>();
 
 const i18n = useI18n();
-const ndvStore = useNDVStore();
+const ndvStore = injectNDVStore();
 const environmentsStore = useEnvironmentsStore();
+const { binaryDataAccessTooltip } = useBinaryDataAccessTooltip();
+const workflowDocumentStore = injectWorkflowDocumentStore();
 
 const assignmentTypeToNodeProperty = (
 	type: string,
@@ -109,7 +111,7 @@ const { resolvedExpressionString, isExpression } = useResolvedExpression({
 
 const hint = computed(() => resolvedExpressionString.value);
 
-const highlightHint = computed(() => Boolean(hint.value && ndvStore.getHoveringItem));
+const highlightHint = computed(() => Boolean(hint.value && ndvStore.value.getHoveringItem));
 
 const onAssignmentNameChange = (update: IUpdateInformation): void => {
 	assignment.value.name = update.value as string;
@@ -135,17 +137,16 @@ const onBlur = (): void => {
 	emit('update:model-value', assignment.value);
 };
 
-const onValueInputHoverChange = (hovered: boolean): void => {
-	valueInputHovered.value = hovered;
-};
-
-const onValueDrop = (droppedExpression: string) => {
+const onValueDrop = async (droppedExpression: string) => {
 	if (props.disableType) {
 		return;
 	}
 
 	const droppedValue = removeExpressionPrefix(droppedExpression);
-	assignment.value.type = typeFromExpression(droppedValue);
+	assignment.value.type = await typeFromExpression(
+		droppedValue,
+		workflowDocumentStore.value.documentId,
+	);
 
 	if (!assignment.value.name) {
 		assignment.value.name = propertyNameFromExpression(droppedValue);
@@ -163,17 +164,15 @@ const onValueDrop = (droppedExpression: string) => {
 		data-test-id="assignment"
 	>
 		<N8nIconButton
+			variant="ghost"
 			v-if="!isReadOnly"
-			type="tertiary"
-			text
 			size="small"
 			icon="grip-vertical"
 			:class="[$style.iconButton, $style.defaultTopPadding, 'drag-handle']"
 		/>
 		<N8nIconButton
+			variant="ghost"
 			v-if="!isReadOnly"
-			type="tertiary"
-			text
 			size="small"
 			icon="trash-2"
 			data-test-id="assignment-remove"
@@ -188,6 +187,7 @@ const onValueDrop = (droppedExpression: string) => {
 						display-options
 						hide-label
 						hide-hint
+						options-position="top"
 						:is-read-only="isReadOnly"
 						:parameter="nameParameter"
 						:value="assignment.name"
@@ -197,21 +197,22 @@ const onValueDrop = (droppedExpression: string) => {
 						@blur="onBlur"
 					/>
 				</template>
-				<template v-if="!hideType" #middle>
-					<N8nTooltip placement="left" :disabled="assignment.type !== 'binary'">
-						<template #content>
-							{{ BINARY_DATA_ACCESS_TOOLTIP }}
-						</template>
-						<TypeSelect
-							:class="$style.select"
-							:model-value="assignment.type ?? 'string'"
-							:is-read-only="disableType || isReadOnly"
-							@update:model-value="onAssignmentTypeChange"
-						>
-						</TypeSelect>
-					</N8nTooltip>
+				<template v-if="!hideType" #middle="{ isStacked }">
+					<div :class="$style.typeSelectWrapper">
+						<N8nTooltip placement="left" :disabled="assignment.type !== 'binary'">
+							<template #content>
+								{{ binaryDataAccessTooltip }}
+							</template>
+							<TypeSelect
+								:model-value="assignment.type ?? 'string'"
+								:is-read-only="disableType || isReadOnly"
+								:is-stacked="isStacked"
+								@update:model-value="onAssignmentTypeChange"
+							/>
+						</N8nTooltip>
+					</div>
 				</template>
-				<template #right="{ breakpoint }">
+				<template #right="{ isStacked }">
 					<div :class="$style.value">
 						<ParameterInputFull
 							display-options
@@ -220,24 +221,19 @@ const onValueDrop = (droppedExpression: string) => {
 							hide-hint
 							is-assignment
 							:is-read-only="isReadOnly"
-							:options-position="breakpoint === 'default' ? 'top' : 'bottom'"
+							:options-position="isStacked ? 'bottom' : 'top'"
 							:parameter="valueParameter"
 							:value="assignment.value"
 							:path="`${path}.value`"
 							data-test-id="assignment-value"
 							@update="onAssignmentValueChange"
 							@blur="onBlur"
-							@hover="onValueInputHoverChange"
 							@drop="onValueDrop"
 						/>
 						<ParameterInputHint
 							v-if="resolvedExpressionString"
 							data-test-id="parameter-expression-preview-value"
-							:class="{
-								[$style.hint]: true,
-								[$style.optionsPadding]:
-									breakpoint !== 'default' && !isReadOnly && valueInputHovered,
-							}"
+							:class="[$style.hint]"
 							:highlight="highlightHint"
 							:hint="hint"
 							single-line
@@ -296,10 +292,6 @@ const onValueDrop = (droppedExpression: string) => {
 		right: 0;
 		font-family: monospace;
 	}
-
-	.optionsPadding {
-		width: calc(100% - 140px);
-	}
 }
 
 .iconButton {
@@ -310,11 +302,11 @@ const onValueDrop = (droppedExpression: string) => {
 	color: var(--icon--color);
 }
 .extraTopPadding {
-	top: calc(20px + var(--spacing--lg));
+	top: calc(20px + var(--spacing--sm));
 }
 
 .defaultTopPadding {
-	top: var(--spacing--lg);
+	top: var(--spacing--sm);
 }
 
 .status {
@@ -324,5 +316,13 @@ const onValueDrop = (droppedExpression: string) => {
 
 .statusIcon {
 	padding-left: var(--spacing--4xs);
+}
+
+.typeSelectWrapper {
+	height: 100%;
+
+	> :deep(span) {
+		height: 100%;
+	}
 }
 </style>

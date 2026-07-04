@@ -1,35 +1,32 @@
 import type { LoginRequestDto } from '@n8n/api-types';
+import { ResolveSignupTokenQueryDto } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { mockInstance } from '@n8n/backend-test-utils';
 import type { AuthenticatedRequest, User } from '@n8n/db';
 import { UserRepository } from '@n8n/db';
 import { Container } from '@n8n/di';
 import type { Response } from 'express';
-import { mock } from 'jest-mock-extended';
+import { v4 as uuidv4 } from 'uuid';
+import { mock } from 'vitest-mock-extended';
 
-import * as auth from '@/auth';
+import { AuthHandlerRegistry } from '@/auth/auth-handler.registry';
 import { AuthService } from '@/auth/auth.service';
+import type { EmailAuthHandler } from '@/auth/handlers/email.auth-handler';
 import config from '@/config';
+import { RESPONSE_ERROR_MESSAGES } from '@/constants';
+import { AuthError } from '@/errors/response-errors/auth.error';
+import { BadRequestError } from '@/errors/response-errors/bad-request.error';
+import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { EventService } from '@/events/event.service';
-import { LdapService } from '@/ldap.ee/ldap.service.ee';
 import { License } from '@/license';
 import { MfaService } from '@/mfa/mfa.service';
+import { LdapService } from '@/modules/ldap.ee/ldap.service.ee';
 import { PostHogClient } from '@/posthog';
+import type { AuthlessRequest } from '@/requests';
 import { UserService } from '@/services/user.service';
+import * as ssoHelpers from '@/sso.ee/sso-helpers';
 
 import { AuthController } from '../auth.controller';
-import { AuthError } from '@/errors/response-errors/auth.error';
-import { v4 as uuidv4 } from 'uuid';
-import { BadRequestError } from '@/errors/response-errors/bad-request.error';
-import type { AuthlessRequest } from '@/requests';
-import * as ssoHelpers from '@/sso.ee/sso-helpers';
-import { ResolveSignupTokenQueryDto } from '@n8n/api-types';
-import { RESPONSE_ERROR_MESSAGES } from '@/constants';
-import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
-
-jest.mock('@/auth');
-
-const mockedAuth = auth as jest.Mocked<typeof auth>;
 
 describe('AuthController', () => {
 	mockInstance(Logger);
@@ -41,15 +38,27 @@ describe('AuthController', () => {
 	mockInstance(PostHogClient);
 	mockInstance(License);
 	const ldapService = mockInstance(LdapService);
+	const authHandlerRegistry = mockInstance(AuthHandlerRegistry);
+	const emailAuthHandler = mock<EmailAuthHandler>();
 	const controller = Container.get(AuthController);
-	const userService = Container.get(UserService);
+	const userService = vi.mocked(Container.get(UserService));
 	const authService = Container.get(AuthService);
 	const eventsService = Container.get(EventService);
 	const postHog = Container.get(PostHogClient);
 
 	describe('login', () => {
 		beforeEach(() => {
-			jest.resetAllMocks();
+			vi.resetAllMocks();
+			// Setup auth handler registry to return handlers
+			authHandlerRegistry.get.mockImplementation((method: string) => {
+				if (method === 'ldap') {
+					return ldapService;
+				}
+				if (method === 'email') {
+					return emailAuthHandler;
+				}
+				return undefined;
+			});
 		});
 
 		it('should not validate email in "emailOrLdapLoginId" if LDAP is enabled', async () => {
@@ -76,9 +85,9 @@ describe('AuthController', () => {
 
 			const res = mock<Response>();
 
-			mockedAuth.handleEmailLogin.mockResolvedValue(member);
+			emailAuthHandler.handleLogin.mockResolvedValue(member);
 
-			ldapService.handleLdapLogin.mockResolvedValue(member);
+			ldapService.handleLogin.mockResolvedValue(member);
 
 			config.set('userManagement.authenticationMethod', 'ldap');
 
@@ -88,15 +97,12 @@ describe('AuthController', () => {
 
 			// Assert
 
-			expect(mockedAuth.handleEmailLogin).toHaveBeenCalledWith(
+			expect(emailAuthHandler.handleLogin).toHaveBeenCalledWith(
 				body.emailOrLdapLoginId,
 				body.password,
 			);
 
-			expect(ldapService.handleLdapLogin).toHaveBeenCalledWith(
-				body.emailOrLdapLoginId,
-				body.password,
-			);
+			expect(ldapService.handleLogin).toHaveBeenCalledWith(body.emailOrLdapLoginId, body.password);
 
 			expect(authService.issueCookie).toHaveBeenCalledWith(res, member, false, browserId);
 			expect(eventsService.emit).toHaveBeenCalledWith('user-logged-in', {
@@ -131,22 +137,52 @@ describe('AuthController', () => {
 
 			const res = mock<Response>();
 
-			mockedAuth.handleEmailLogin.mockResolvedValue(member);
+			emailAuthHandler.handleLogin.mockResolvedValue(member);
 			config.set('userManagement.authenticationMethod', 'oidc');
 
 			// Act
 
-			await expect(controller.login(req, res, body)).rejects.toThrowError(
-				new AuthError('SSO is enabled, please log in with SSO'),
-			);
+			const execution = controller.login(req, res, body);
+			await expect(execution).rejects.toThrow(AuthError);
+			await expect(execution).rejects.toThrow('SSO is enabled, please log in with SSO');
 
 			// Assert
 
-			expect(mockedAuth.handleEmailLogin).toHaveBeenCalledWith(
+			expect(emailAuthHandler.handleLogin).toHaveBeenCalledWith(
 				body.emailOrLdapLoginId,
 				body.password,
 			);
 			expect(authService.issueCookie).not.toHaveBeenCalled();
+			expect(eventsService.emit).toHaveBeenCalledWith('user-login-failed', {
+				authenticationMethod: 'email',
+				userEmail: body.emailOrLdapLoginId,
+				reason: 'SSO is enabled, please log in with SSO',
+			});
+		});
+
+		it('should emit login failed event on invalid password if SSO is enabled', async () => {
+			const body = mock<LoginRequestDto>({
+				emailOrLdapLoginId: 'user@example.com',
+				password: 'wrong-password',
+			});
+
+			const req = mock<AuthenticatedRequest>({
+				body,
+			});
+			const res = mock<Response>();
+
+			emailAuthHandler.handleLogin.mockResolvedValue(undefined);
+			config.set('userManagement.authenticationMethod', 'oidc');
+
+			const execution = controller.login(req, res, body);
+			await expect(execution).rejects.toThrow(AuthError);
+			await expect(execution).rejects.toThrow('SSO is enabled, please log in with SSO');
+
+			expect(eventsService.emit).toHaveBeenCalledWith('user-login-failed', {
+				authenticationMethod: 'email',
+				userEmail: body.emailOrLdapLoginId,
+				reason: 'SSO is enabled, please log in with SSO',
+			});
 		});
 
 		it('should allow owners to login with email if "OIDC" is the authentication method', async () => {
@@ -171,13 +207,13 @@ describe('AuthController', () => {
 
 			const res = mock<Response>();
 
-			mockedAuth.handleEmailLogin.mockResolvedValue(member); // Act
+			emailAuthHandler.handleLogin.mockResolvedValue(member); // Act
 
 			await controller.login(req, res, body);
 
 			// Assert
 
-			expect(mockedAuth.handleEmailLogin).toHaveBeenCalledWith(
+			expect(emailAuthHandler.handleLogin).toHaveBeenCalledWith(
 				body.emailOrLdapLoginId,
 				body.password,
 			);
@@ -196,8 +232,8 @@ describe('AuthController', () => {
 		const eventService: EventService = mockInstance(EventService);
 
 		it('throws a BadRequestError if SSO is enabled', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(true);
-			const id = uuidv4();
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(true);
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -207,12 +243,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -220,16 +256,17 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new BadRequestError(
-					'Invite links are not supported on this system, please use single sign on instead.',
-				),
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow(
+				'Invite links are not supported on this system, please use single sign on instead.',
 			);
 		});
 
 		it('throws a ForbiddenError if the users quota is reached', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const id = uuidv4();
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -239,12 +276,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -252,20 +289,21 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId: id,
 				inviteeId: id,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(false);
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(false);
 
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new ForbiddenError(RESPONSE_ERROR_MESSAGES.USERS_QUOTA_REACHED),
-			);
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(ForbiddenError);
+			await expect(promise).rejects.toThrow(RESPONSE_ERROR_MESSAGES.USERS_QUOTA_REACHED);
 		});
 
 		it('throws a BadRequestError if the users are not found', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const id = uuidv4();
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -275,12 +313,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -288,21 +326,22 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId: id,
 				inviteeId: id,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(true);
-			jest.spyOn(userRepository, 'findManyByIds').mockResolvedValue([]);
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(true);
+			vi.mocked(userRepository.findManyByIds).mockResolvedValue([]);
 
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new BadRequestError('Invalid invite URL'),
-			);
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow('Invalid invite URL');
 		});
 
 		it('throws a BadRequestError if the invitee already has a password', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const id = uuidv4();
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -312,12 +351,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -325,12 +364,12 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId: id,
 				inviteeId: id,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(true);
-			jest.spyOn(userRepository, 'findManyByIds').mockResolvedValue([
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(true);
+			vi.mocked(userRepository.findManyByIds).mockResolvedValue([
 				mock<User>({
 					id,
 					password: 'Password123!',
@@ -341,14 +380,17 @@ describe('AuthController', () => {
 				}),
 			]);
 
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new BadRequestError('The invitation was likely either deleted or already claimed'),
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow(
+				'The invitation was likely either deleted or already claimed',
 			);
 		});
 
 		it('throws a BadRequestError if the inviter does not exist or is not set up', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const id = uuidv4();
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -358,12 +400,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -371,12 +413,12 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId: id,
 				inviteeId: id,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(true);
-			jest.spyOn(userRepository, 'findManyByIds').mockResolvedValue([
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(true);
+			vi.mocked(userRepository.findManyByIds).mockResolvedValue([
 				mock<User>({
 					id,
 					email: undefined,
@@ -389,14 +431,15 @@ describe('AuthController', () => {
 				}),
 			]);
 
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new BadRequestError('Invalid request'),
-			);
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow('Invalid request');
 		});
 
 		it('returns the inviter if the invitation is valid', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const id = uuidv4();
+			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
 				logger,
@@ -406,12 +449,12 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
 			const payload = new ResolveSignupTokenQueryDto({
-				inviterId: id,
-				inviteeId: id,
+				token,
 			});
 
 			const req = mock<AuthlessRequest>({
@@ -419,12 +462,12 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId: id,
 				inviteeId: id,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(true);
-			jest.spyOn(userRepository, 'findManyByIds').mockResolvedValue([
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(true);
+			vi.mocked(userRepository.findManyByIds).mockResolvedValue([
 				mock<User>({
 					id,
 					email: 'inviter@example.com',
@@ -450,7 +493,7 @@ describe('AuthController', () => {
 		});
 
 		it('validates JWT token and returns inviter if token is valid', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const inviterId = uuidv4();
 			const inviteeId = uuidv4();
 			const token = 'valid-jwt-token';
@@ -463,6 +506,7 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
@@ -475,12 +519,12 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest.spyOn(userService, 'getInvitationIdsFromPayload').mockResolvedValue({
+			vi.mocked(userService.getInvitationIdsFromPayload).mockResolvedValue({
 				inviterId,
 				inviteeId,
 			});
-			jest.spyOn(license, 'isWithinUsersLimit').mockReturnValue(true);
-			jest.spyOn(userRepository, 'findManyByIds').mockResolvedValue([
+			vi.mocked(license.isWithinUsersLimit).mockReturnValue(true);
+			vi.mocked(userRepository.findManyByIds).mockResolvedValue([
 				mock<User>({
 					id: inviterId,
 					email: 'inviter@example.com',
@@ -504,11 +548,11 @@ describe('AuthController', () => {
 				},
 			});
 
-			expect(userService.getInvitationIdsFromPayload).toHaveBeenCalledWith(payload);
+			expect(userService.getInvitationIdsFromPayload).toHaveBeenCalledWith(token);
 		});
 
 		it('throws BadRequestError if JWT token is invalid', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const token = 'invalid-jwt-token';
 
 			const authController = new AuthController(
@@ -519,6 +563,7 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
@@ -531,17 +576,17 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest
-				.spyOn(userService, 'getInvitationIdsFromPayload')
-				.mockRejectedValue(new BadRequestError('Invalid invite URL'));
-
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
+			vi.mocked(userService.getInvitationIdsFromPayload).mockRejectedValue(
 				new BadRequestError('Invalid invite URL'),
 			);
+
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow('Invalid invite URL');
 		});
 
 		it('throws BadRequestError if JWT token payload is missing inviterId or inviteeId', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 			const token = 'valid-jwt-token';
 
 			const authController = new AuthController(
@@ -552,6 +597,7 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
@@ -564,17 +610,17 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest
-				.spyOn(userService, 'getInvitationIdsFromPayload')
-				.mockRejectedValue(new BadRequestError('Invalid invite URL'));
-
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
+			vi.mocked(userService.getInvitationIdsFromPayload).mockRejectedValue(
 				new BadRequestError('Invalid invite URL'),
 			);
+
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow('Invalid invite URL');
 		});
 
-		it('throws BadRequestError if neither token nor inviterId/inviteeId are provided', async () => {
-			jest.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
+		it('throws BadRequestError if token is missing', async () => {
+			vi.spyOn(ssoHelpers, 'isSsoCurrentAuthenticationMethod').mockReturnValue(false);
 
 			const authController = new AuthController(
 				logger,
@@ -584,10 +630,11 @@ describe('AuthController', () => {
 				license,
 				userRepository,
 				eventService,
+				authHandlerRegistry,
 				postHog,
 			);
 
-			// Create empty payload to test validation when neither token nor IDs are provided
+			// Create empty payload to test validation when token is missing
 			// Use type assertion to bypass zod-class validation for all-optional schemas
 			// Validation is handled in the service layer
 			const payload = {} as ResolveSignupTokenQueryDto;
@@ -597,13 +644,9 @@ describe('AuthController', () => {
 			});
 			const res = mock<Response>();
 
-			jest
-				.spyOn(userService, 'getInvitationIdsFromPayload')
-				.mockRejectedValue(new BadRequestError('Invalid invite URL'));
-
-			await expect(authController.resolveSignupToken(req, res, payload)).rejects.toThrow(
-				new BadRequestError('Invalid invite URL'),
-			);
+			const promise = authController.resolveSignupToken(req, res, payload);
+			await expect(promise).rejects.toThrow(BadRequestError);
+			await expect(promise).rejects.toThrow('Token is required');
 		});
 	});
 });

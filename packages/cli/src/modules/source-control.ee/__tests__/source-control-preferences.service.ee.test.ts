@@ -1,17 +1,20 @@
 import type { Logger } from '@n8n/backend-common';
 import type { SettingsRepository } from '@n8n/db';
-import { mock } from 'jest-mock-extended';
+import { Container } from '@n8n/di';
+import { readFile, writeFile, access, mkdir } from 'fs/promises';
 import type { InstanceSettings, Cipher } from 'n8n-core';
-import { readFile, access, mkdir } from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { mock } from 'vitest-mock-extended';
+
+import type { Publisher } from '@/scaling/pubsub/publisher.service';
 
 import { SourceControlPreferencesService } from '../source-control-preferences.service.ee';
 import type { SourceControlPreferences } from '../types/source-control-preferences';
 
 // Restore real fs modules for these tests since we need actual file operations
-jest.unmock('node:fs');
-jest.unmock('node:fs/promises');
+vi.unmock('node:fs');
+vi.unmock('node:fs/promises');
 
 describe('SourceControlPreferencesService', () => {
 	const instanceSettings = mock<InstanceSettings>({ n8nFolder: '' });
@@ -37,6 +40,26 @@ describe('SourceControlPreferencesService', () => {
 		expect(validationResult).toBeTruthy();
 	});
 
+	describe('branchName validation', () => {
+		it.each(['main', 'develop', 'feature/my-branch', 'release-1.0', 'v2.3.4'])(
+			'should accept valid branch name: %s',
+			async (branchName) => {
+				await expect(
+					service.validateSourceControlPreferences({ branchName }),
+				).resolves.not.toThrow();
+			},
+		);
+
+		it.each(['--option-like-value', '-flag', '--receive-pack=cmd', '--upload-pack=cmd'])(
+			'should reject branch name that does not start with an alphanumeric character: %s',
+			async (branchName) => {
+				await expect(service.validateSourceControlPreferences({ branchName })).rejects.toThrow(
+					'Invalid source control preferences',
+				);
+			},
+		);
+	});
+
 	describe('line ending normalization', () => {
 		let tempDir: string;
 
@@ -52,7 +75,7 @@ describe('SourceControlPreferencesService', () => {
 			const expectedNormalizedKey = keyWithCRLF.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
 			const mockCipher = mock<Cipher>();
-			mockCipher.decrypt.mockReturnValue(keyWithCRLF);
+			mockCipher.decryptV2.mockResolvedValue(keyWithCRLF);
 
 			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
 			const service = new SourceControlPreferencesService(
@@ -64,7 +87,7 @@ describe('SourceControlPreferencesService', () => {
 			);
 
 			// Mock the getKeyPairFromDatabase method to return a key pair
-			jest.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
+			vi.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
 				encryptedPrivateKey: 'encrypted',
 				publicKey: 'public',
 			});
@@ -84,7 +107,7 @@ describe('SourceControlPreferencesService', () => {
 				'-----BEGIN OPENSSH PRIVATE KEY-----\r\ntest\rkey\r\ndata\r-----END OPENSSH PRIVATE KEY-----\n';
 
 			const mockCipher = mock<Cipher>();
-			mockCipher.decrypt.mockReturnValue(keyWithMixedEndings);
+			mockCipher.decryptV2.mockResolvedValue(keyWithMixedEndings);
 
 			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
 			const service = new SourceControlPreferencesService(
@@ -96,7 +119,7 @@ describe('SourceControlPreferencesService', () => {
 			);
 
 			// Mock the getKeyPairFromDatabase method
-			jest.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
+			vi.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
 				encryptedPrivateKey: 'encrypted',
 				publicKey: 'public',
 			});
@@ -118,7 +141,7 @@ describe('SourceControlPreferencesService', () => {
 				'-----BEGIN OPENSSH PRIVATE KEY-----\ntest\nkey\ndata\n-----END OPENSSH PRIVATE KEY-----\n';
 
 			const mockCipher = mock<Cipher>();
-			mockCipher.decrypt.mockReturnValue(keyWithLF);
+			mockCipher.decryptV2.mockResolvedValue(keyWithLF);
 
 			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
 			const service = new SourceControlPreferencesService(
@@ -130,7 +153,7 @@ describe('SourceControlPreferencesService', () => {
 			);
 
 			// Mock the getKeyPairFromDatabase method
-			jest.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
+			vi.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
 				encryptedPrivateKey: 'encrypted',
 				publicKey: 'public',
 			});
@@ -158,7 +181,7 @@ describe('SourceControlPreferencesService', () => {
 				'-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-content\n-----END OPENSSH PRIVATE KEY-----\n';
 
 			const mockCipher = mock<Cipher>();
-			mockCipher.decrypt.mockReturnValue(testKey);
+			mockCipher.decryptV2.mockResolvedValue(testKey);
 
 			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
 			const service = new SourceControlPreferencesService(
@@ -170,7 +193,7 @@ describe('SourceControlPreferencesService', () => {
 			);
 
 			// Mock the getKeyPairFromDatabase method
-			jest.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
+			vi.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
 				encryptedPrivateKey: 'encrypted',
 				publicKey: 'public',
 			});
@@ -200,7 +223,7 @@ describe('SourceControlPreferencesService', () => {
 
 			const testKey =
 				'-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-content\n-----END OPENSSH PRIVATE KEY-----\n';
-			jest.spyOn(service as any, 'getPrivateKeyFromDatabase').mockResolvedValue(testKey);
+			vi.spyOn(service as any, 'getPrivateKeyFromDatabase').mockResolvedValue(testKey);
 
 			// Act & Assert - should throw UnexpectedError when file creation fails
 			await expect(service.getPrivateKeyPath()).rejects.toThrow(
@@ -214,7 +237,7 @@ describe('SourceControlPreferencesService', () => {
 				'-----BEGIN OPENSSH PRIVATE KEY-----\ntest-key-content\n-----END OPENSSH PRIVATE KEY-----\n';
 
 			const mockCipher = mock<Cipher>();
-			mockCipher.decrypt.mockReturnValue(testKey);
+			mockCipher.decryptV2.mockResolvedValue(testKey);
 
 			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
 			const service = new SourceControlPreferencesService(
@@ -226,7 +249,7 @@ describe('SourceControlPreferencesService', () => {
 			);
 
 			// Mock the getKeyPairFromDatabase method
-			jest.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
+			vi.spyOn(service as any, 'getKeyPairFromDatabase').mockResolvedValue({
 				encryptedPrivateKey: 'encrypted',
 				publicKey: 'public',
 			});
@@ -255,7 +278,7 @@ describe('SourceControlPreferencesService', () => {
 				httpsPassword: 'testpassword',
 			};
 
-			const saveHttpsCredentialsSpy = jest.spyOn(service as any, 'saveHttpsCredentials');
+			const saveHttpsCredentialsSpy = vi.spyOn(service as any, 'saveHttpsCredentials');
 
 			const result = await service.setPreferences(preferencesWithCredentials);
 
@@ -273,11 +296,97 @@ describe('SourceControlPreferencesService', () => {
 				preferencesWithCredentials.httpsPassword,
 			);
 		});
+
+		describe('multi-main broadcasting', () => {
+			let multiMainInstanceSettings: InstanceSettings;
+			let singleMainInstanceSettings: InstanceSettings;
+			let mockPublisher: Publisher;
+			let multiMainService: SourceControlPreferencesService;
+			let singleMainService: SourceControlPreferencesService;
+
+			beforeEach(() => {
+				multiMainInstanceSettings = mock<InstanceSettings>({
+					n8nFolder: '',
+					isMultiMain: true,
+				});
+				singleMainInstanceSettings = mock<InstanceSettings>({
+					n8nFolder: '',
+					isMultiMain: false,
+				});
+				mockPublisher = mock<Publisher>();
+
+				vi.spyOn(Container, 'get').mockReturnValue(mockPublisher);
+
+				multiMainService = new SourceControlPreferencesService(
+					multiMainInstanceSettings,
+					mock(),
+					mock(),
+					mock(),
+					mock(),
+				);
+
+				singleMainService = new SourceControlPreferencesService(
+					singleMainInstanceSettings,
+					mock(),
+					mock(),
+					mock(),
+					mock(),
+				);
+
+				// Mock getKeyPairFromDatabase to prevent SSH key generation during tests
+				vi.spyOn(multiMainService as any, 'getKeyPairFromDatabase').mockResolvedValue({
+					publicKey: 'test',
+					encryptedPrivateKey: 'test',
+				});
+				vi.spyOn(singleMainService as any, 'getKeyPairFromDatabase').mockResolvedValue({
+					publicKey: 'test',
+					encryptedPrivateKey: 'test',
+				});
+			});
+
+			afterEach(() => {
+				vi.restoreAllMocks();
+			});
+
+			it('should broadcast reload event when saveToDb=true and broadcastReload=true in multi-main mode', async () => {
+				await multiMainService.setPreferences({ branchName: 'test' }, true, true);
+
+				expect(mockPublisher.publishCommand).toHaveBeenCalledWith({
+					command: 'reload-source-control-config',
+				});
+			});
+
+			it('should NOT broadcast reload event when broadcastReload=false', async () => {
+				await multiMainService.setPreferences({ branchName: 'test' }, true, false);
+
+				expect(mockPublisher.publishCommand).not.toHaveBeenCalled();
+			});
+
+			it('should NOT broadcast reload event when saveToDb=false', async () => {
+				await multiMainService.setPreferences({ branchName: 'test' }, false, true);
+
+				expect(mockPublisher.publishCommand).not.toHaveBeenCalled();
+			});
+
+			it('should NOT broadcast reload event in single-main mode', async () => {
+				await singleMainService.setPreferences({ branchName: 'test' }, true, true);
+
+				expect(mockPublisher.publishCommand).not.toHaveBeenCalled();
+			});
+
+			it('should broadcast reload event by default when only saveToDb is specified', async () => {
+				await multiMainService.setPreferences({ branchName: 'test' }, true);
+
+				expect(mockPublisher.publishCommand).toHaveBeenCalledWith({
+					command: 'reload-source-control-config',
+				});
+			});
+		});
 	});
 
 	describe('getDecryptedHttpsCredentials', () => {
 		it('should throw error when no https credentials in database', async () => {
-			jest.spyOn(mockSettingsRepository, 'findByKey').mockResolvedValue(null);
+			mockSettingsRepository.findByKey.mockResolvedValue(null);
 
 			await expect(service.getDecryptedHttpsCredentials()).rejects.toThrow(
 				'No credentials found for https connection',
@@ -287,15 +396,13 @@ describe('SourceControlPreferencesService', () => {
 		it('should return decrypted https credentials when present in database', async () => {
 			const encryptedCredentialsJsonString =
 				'{ "encryptedUsername": "encryptedUser", "encryptedPassword": "encryptedPass"}';
-			jest.spyOn(mockSettingsRepository, 'findByKey').mockResolvedValue(
-				Promise.resolve({
-					key: 'features.sourceControl.httpsCredentials',
-					value: encryptedCredentialsJsonString,
-					column: 'testing',
-					loadOnStartup: false,
-				}),
-			);
-			mockCipher.decrypt.mockImplementation((value) => `decrypted-${value}`);
+			mockSettingsRepository.findByKey.mockResolvedValue({
+				key: 'features.sourceControl.httpsCredentials',
+				value: encryptedCredentialsJsonString,
+				column: 'testing',
+				loadOnStartup: false,
+			} as never);
+			mockCipher.decryptV2.mockImplementation(async (value) => `decrypted-${value}`);
 
 			const result = await service.getDecryptedHttpsCredentials();
 
@@ -303,6 +410,50 @@ describe('SourceControlPreferencesService', () => {
 				username: 'decrypted-encryptedUser',
 				password: 'decrypted-encryptedPass',
 			});
+		});
+	});
+
+	describe('resetKnownHosts', () => {
+		let tempDir: string;
+		let sshFolder: string;
+
+		beforeEach(async () => {
+			tempDir = path.join(os.tmpdir(), 'n8n-test-' + Date.now());
+			sshFolder = path.join(tempDir, 'ssh');
+			await mkdir(sshFolder, { recursive: true });
+		});
+
+		it('should delete the known_hosts file when it exists', async () => {
+			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
+			const testService = new SourceControlPreferencesService(
+				instanceSettings,
+				mock(),
+				mock(),
+				mock(),
+				mock(),
+			);
+
+			const knownHostsPath = path.join(sshFolder, 'known_hosts');
+			await writeFile(knownHostsPath, 'github.com ssh-rsa AAAA...\n');
+
+			await expect(access(knownHostsPath)).resolves.toBeUndefined();
+
+			await testService.resetKnownHosts();
+
+			await expect(access(knownHostsPath)).rejects.toThrow();
+		});
+
+		it('should complete successfully when known_hosts file does not exist', async () => {
+			const instanceSettings = mock<InstanceSettings>({ n8nFolder: tempDir });
+			const testService = new SourceControlPreferencesService(
+				instanceSettings,
+				mock(),
+				mock(),
+				mock(),
+				mock(),
+			);
+
+			await expect(testService.resetKnownHosts()).resolves.toBeUndefined();
 		});
 	});
 });

@@ -5,30 +5,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type TestAgent from 'supertest/lib/agent';
 
-import { MessageEventBus } from '@/eventbus/message-event-bus/message-event-bus';
 import { EventMessageGeneric } from '@/eventbus/event-message-classes/event-message-generic';
+import { MessageEventBus } from '@/eventbus/message-event-bus/message-event-bus';
+import { LogStreamingDestinationService } from '@/modules/log-streaming.ee/log-streaming-destination.service';
 
 import { TlsSyslogServer } from './tls-server';
 import { createUser } from '../shared/db/users';
 import * as utils from '../shared/utils';
 
-jest.unmock('@/eventbus/message-event-bus/message-event-bus');
+vi.unmock('@/eventbus/message-event-bus/message-event-bus');
 
 const tlsServer = new TlsSyslogServer();
 let serverPort: number;
 let eventBus: MessageEventBus;
+let destinationService: LogStreamingDestinationService;
 let authOwnerAgent: TestAgent;
 let logger: Logger;
 
 const testServer = utils.setupTestServer({
 	endpointGroups: ['eventBus'],
 	enabledFeatures: ['feat:logStreaming'],
+	modules: ['log-streaming'],
 });
 
 afterAll(async () => {
 	await eventBus?.close();
-	// Undo the "unmock" from above
-	jest.mock('@/eventbus/message-event-bus/message-event-bus');
 	await tlsServer.stop();
 });
 
@@ -41,6 +42,9 @@ beforeAll(async () => {
 	eventBus = Container.get(MessageEventBus);
 	logger = Container.get(Logger);
 	await eventBus.initialize();
+
+	destinationService = Container.get(LogStreamingDestinationService);
+	await destinationService.initialize();
 });
 
 describe('TLS Syslog E2E', () => {
@@ -51,8 +55,13 @@ describe('TLS Syslog E2E', () => {
 		tlsServer.clearMessages();
 	});
 
-	afterEach(() => {
-		eventBus.destinations = {};
+	afterEach(async () => {
+		const destinations = await destinationService.findDestination();
+		for (const destination of destinations) {
+			if (destination.id) {
+				await destinationService.removeDestination(destination.id, false);
+			}
+		}
 	});
 
 	test('should send message over real TLS connection', async () => {
@@ -86,7 +95,10 @@ describe('TLS Syslog E2E', () => {
 	});
 
 	test('should log an error when the certificate is invalid - but not break the application', async () => {
-		const loggerErrorSpy = jest.spyOn(logger, 'error');
+		// `logger` is a mock-extended instance; its `error` is already a mock fn and can't be
+		// re-spied via `vi.spyOn` (proxy properties aren't configurable). Use it directly.
+		const loggerErrorSpy = vi.mocked(logger.error);
+		loggerErrorSpy.mockClear();
 
 		const incorrectCertificate = fs.readFileSync(
 			path.join(__dirname, 'support', 'incorrect-certificate.pem'),

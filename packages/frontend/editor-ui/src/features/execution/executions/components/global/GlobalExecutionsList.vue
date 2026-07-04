@@ -1,29 +1,30 @@
 <script lang="ts" setup>
-import ExecutionStopAllText from '../ExecutionStopAllText.vue';
-import ConcurrentExecutionsHeader from '../ConcurrentExecutionsHeader.vue';
-import ExecutionsFilter from '../ExecutionsFilter.vue';
-import GlobalExecutionsListItem from './GlobalExecutionsListItem.vue';
 import SelectedItemsInfo from '@/app/components/common/SelectedItemsInfo.vue';
-import { useI18n } from '@n8n/i18n';
 import { useMessage } from '@/app/composables/useMessage';
 import { usePageRedirectionHelper } from '@/app/composables/usePageRedirectionHelper';
 import { useTelemetry } from '@/app/composables/useTelemetry';
 import { useToast } from '@/app/composables/useToast';
 import { EnterpriseEditionFeature, MODAL_CONFIRM } from '@/app/constants';
+import { useSettingsStore } from '@/app/stores/settings.store';
+import { useWorkflowsListStore } from '@/app/stores/workflowsList.store';
 import type { IWorkflowDb } from '@/Interface';
-import type { ExecutionFilterType, ExecutionSummaryWithScopes } from '../../executions.types';
+import { useI18n } from '@n8n/i18n';
 import type { PermissionsRecord } from '@n8n/permissions';
 import { getResourcePermissions } from '@n8n/permissions';
-import { useExecutionsStore } from '../../executions.store';
-import { useSettingsStore } from '@/app/stores/settings.store';
-import { useWorkflowsStore } from '@/app/stores/workflows.store';
-import { executionRetryMessage } from '../../executions.utils';
 import { useIntersectionObserver } from '@vueuse/core';
 import type { ExecutionSummary } from 'n8n-workflow';
 import { computed, ref, useTemplateRef, watch, type ComponentPublicInstance } from 'vue';
+import { useExecutionsStore } from '../../executions.store';
+import type { ExecutionFilterType, ExecutionSummaryWithScopes } from '../../executions.types';
+import { executionRetryMessage } from '../../executions.utils';
+import ConcurrentExecutionsHeader from '../ConcurrentExecutionsHeader.vue';
+import ExecutionsFilter from '../ExecutionsFilter.vue';
+import ExecutionStopAllText from '../ExecutionStopAllText.vue';
+import GlobalExecutionsListItem from './GlobalExecutionsListItem.vue';
 
-import { ElCheckbox, ElSkeletonItem } from 'element-plus';
 import { N8nButton, N8nCheckbox, N8nTableBase } from '@n8n/design-system';
+import { ElSkeletonItem } from 'element-plus';
+
 const props = withDefaults(
 	defineProps<{
 		executions: ExecutionSummaryWithScopes[];
@@ -46,14 +47,22 @@ const emit = defineEmits<{
 
 const i18n = useI18n();
 const telemetry = useTelemetry();
-const workflowsStore = useWorkflowsStore();
+const workflowsListStore = useWorkflowsListStore();
 const executionsStore = useExecutionsStore();
 const settingsStore = useSettingsStore();
 const pageRedirectionHelper = usePageRedirectionHelper();
 
+const autoRefresh = computed({
+	get: () => executionsStore.autoRefresh,
+	set: (value: boolean) => {
+		executionsStore.autoRefresh = value;
+	},
+});
+
 const allVisibleSelected = ref(false);
 const allExistingSelected = ref(false);
 const selectedItems = ref<Record<string, boolean>>({});
+const isInitialLoad = ref(true);
 
 const message = useMessage();
 const toast = useToast();
@@ -72,7 +81,7 @@ const workflows = computed<IWorkflowDb[]>(() => {
 			id: 'all',
 			name: i18n.baseText('executionsList.allWorkflows'),
 		} as IWorkflowDb,
-		...workflowsStore.allWorkflows,
+		...workflowsListStore.allWorkflows,
 	];
 });
 
@@ -93,6 +102,15 @@ watch(
 			handleClearSelection();
 		}
 		adjustSelectionAfterMoreItemsLoaded();
+	},
+);
+
+watch(
+	() => executionsStore.loading,
+	(isLoading, wasLoading) => {
+		if (wasLoading && !isLoading) {
+			isInitialLoad.value = false;
+		}
 	},
 );
 
@@ -255,7 +273,7 @@ async function retryExecution(execution: ExecutionSummary, loadWorkflow?: boolea
 	}
 
 	telemetry.track('User clicked retry execution button', {
-		workflow_id: workflowsStore.workflowId,
+		workflow_id: '',
 		execution_id: execution.id,
 		retry_type: loadWorkflow ? 'current' : 'original',
 	});
@@ -312,9 +330,8 @@ async function deleteExecution(execution: ExecutionSummary) {
 	}
 }
 
-async function onAutoRefreshToggle(value: string | number | boolean) {
-	const boolValue = typeof value === 'boolean' ? value : Boolean(value);
-	if (boolValue) {
+async function onAutoRefreshToggle(value: boolean) {
+	if (value) {
 		await executionsStore.startAutoRefreshInterval();
 	} else {
 		executionsStore.stopAutoRefreshInterval();
@@ -337,14 +354,13 @@ const goToUpgrade = () => {
 				:is-cloud-deployment="settingsStore.isCloudDeployment"
 				@go-to-upgrade="goToUpgrade"
 			/>
-			<ElCheckbox
+			<N8nCheckbox
 				v-else
-				v-model="executionsStore.autoRefresh"
+				v-model="autoRefresh"
 				data-test-id="execution-auto-refresh-checkbox"
-				@update:model-value="onAutoRefreshToggle($event)"
-			>
-				{{ i18n.baseText('executionsList.autoRefresh') }}
-			</ElCheckbox>
+				:label="i18n.baseText('executionsList.autoRefresh')"
+				@update:model-value="onAutoRefreshToggle"
+			/>
 			<div :class="$style.execHeaderRight">
 				<ExecutionStopAllText :executions="props.executions" />
 				<ExecutionsFilter
@@ -422,7 +438,7 @@ const goToUpgrade = () => {
 							@retry-original="retryOriginalExecution"
 							@go-to-upgrade="goToUpgrade"
 						/>
-						<template v-if="executionsStore.loading && !executions.length">
+						<template v-if="isInitialLoad && executionsStore.loading && !executions.length">
 							<tr v-for="item in executionsStore.itemsPerPage" :key="item">
 								<td v-for="col in 9" :key="col">
 									<ElSkeletonItem />
@@ -455,12 +471,12 @@ const goToUpgrade = () => {
 					</tbody>
 				</N8nTableBase>
 			</div>
+			<SelectedItemsInfo
+				:selected-count="selectedCount"
+				@delete-selected="handleDeleteSelected"
+				@clear-selection="handleClearSelection"
+			/>
 		</div>
-		<SelectedItemsInfo
-			:selected-count="selectedCount"
-			@delete-selected="handleDeleteSelected"
-			@clear-selection="handleClearSelection"
-		/>
 	</div>
 </template>
 
@@ -497,13 +513,5 @@ const goToUpgrade = () => {
 	align-items: center;
 	margin-left: auto;
 	gap: var(--spacing--sm);
-}
-</style>
-
-<style lang="scss" scoped>
-:deep(.el-checkbox) {
-	display: inline-flex;
-	align-items: center;
-	vertical-align: middle;
 }
 </style>
